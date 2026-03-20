@@ -1,18 +1,21 @@
 import * as vscode from "vscode";
 
+const output = vscode.window.createOutputChannel("MLsem", { log: true });
+
 export function activate(context: vscode.ExtensionContext) {
-	console.log("Activating..");
+	output.info("Activating..");
 
 	const disposable = vscode.commands.registerCommand("mlsem.helloWorld", () => {
 		vscode.window.showInformationMessage("Hello from MLsem!");
 	});
 
 	context.subscriptions.push(disposable);
+	context.subscriptions.push(output);
 
-	console.log("Activated.");
+	output.info("Activated.");
 }
 
 export function deactivate() {
-	console.log("Deactivating..");
-	console.log("Deactivated.");
+	output.info("Deactivating..");
+	output.info("Deactivated.");
 }
