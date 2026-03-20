@@ -12,7 +12,7 @@ const config = {
 	format: "cjs",
 	platform: "node",
 	target: "node22",
-	sourcemap: isWatch,
+	sourcemap: !isMinify,
 	minify: isMinify,
 };
 
