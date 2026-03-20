@@ -1,0 +1,11 @@
+**/*.map
+**/*.ts
+.claude/**
+.gitignore
+.vscode/**
+biome.json
+bun.lock
+esbuild.config.mjs
+node_modules/**
+src/**
+tsconfig.json

@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"module": "ESNext",
+		"target": "ES2022",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022"],
+		"outDir": "dist",
+		"strict": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"types": ["vscode"]
+	},
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", "dist"]
+}

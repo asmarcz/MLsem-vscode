@@ -1,0 +1,38 @@
+{
+	"name": "mlsem-vscode",
+	"displayName": "MLsem",
+	"description": "",
+	"version": "0.0.1",
+	"engines": {
+		"vscode": "^1.110.0"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"main": "./dist/extension.js",
+	"activationEvents": [],
+	"contributes": {
+		"commands": [
+			{
+				"command": "mlsem.helloWorld",
+				"title": "MLsem: Hello World"
+			}
+		]
+	},
+	"scripts": {
+		"build": "bun esbuild.config.mjs",
+		"watch": "bun esbuild.config.mjs --watch",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"package": "bun esbuild.config.mjs --minify && bunx @vscode/vsce package --no-dependencies",
+		"publish": "bunx @vscode/vsce publish --no-dependencies"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.8",
+		"@types/vscode": "^1.110.0",
+		"@vscode/vsce": "^3.7.1",
+		"esbuild": "^0.27.4",
+		"typescript": "^5.9.3"
+	}
+}
