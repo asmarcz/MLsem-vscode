@@ -1,0 +1,287 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "MLsem",
+	"scopeName": "source.mlsem",
+	"fileTypes": ["stml"],
+	"patterns": [
+		{ "include": "#comments" },
+		{ "include": "#strings" },
+		{ "include": "#characters" },
+		{ "include": "#extension-syntax" },
+		{ "include": "#numbers" },
+		{ "include": "#keywords" },
+		{ "include": "#constants" },
+		{ "include": "#builtin-types" },
+		{ "include": "#type-variables" },
+		{ "include": "#row-variables" },
+		{ "include": "#constructors" },
+		{ "include": "#operator-identifiers" },
+		{ "include": "#operators" },
+		{ "include": "#identifiers" },
+		{ "include": "#punctuation" }
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.block.mlsem",
+					"begin": "\\(\\*",
+					"end": "\\*\\)",
+					"beginCaptures": {
+						"0": { "name": "punctuation.definition.comment.begin.mlsem" }
+					},
+					"endCaptures": {
+						"0": { "name": "punctuation.definition.comment.end.mlsem" }
+					},
+					"patterns": [{ "include": "#comments" }]
+				}
+			]
+		},
+		"strings": {
+			"patterns": [
+				{
+					"name": "string.quoted.double.mlsem",
+					"begin": "\"",
+					"end": "\"",
+					"beginCaptures": {
+						"0": { "name": "punctuation.definition.string.begin.mlsem" }
+					},
+					"endCaptures": {
+						"0": { "name": "punctuation.definition.string.end.mlsem" }
+					},
+					"patterns": [{ "include": "#string-escapes" }]
+				}
+			]
+		},
+		"string-escapes": {
+			"patterns": [
+				{
+					"name": "constant.character.escape.mlsem",
+					"match": "\\\\([\\\\'\"ntbr ]|[0-7]{3})"
+				}
+			]
+		},
+		"characters": {
+			"patterns": [
+				{
+					"name": "constant.character.mlsem",
+					"match": "'\\\\([\\\\'\"ntbr ]|[0-7]{3})'"
+				},
+				{
+					"name": "constant.character.mlsem",
+					"match": "'[^'\\\\\\n\\r]'"
+				}
+			]
+		},
+		"extension-syntax": {
+			"patterns": [
+				{
+					"name": "meta.extension.mlsem",
+					"begin": "%\\(",
+					"end": "\\)%",
+					"beginCaptures": {
+						"0": { "name": "punctuation.definition.extension.begin.mlsem" }
+					},
+					"endCaptures": {
+						"0": { "name": "punctuation.definition.extension.end.mlsem" }
+					},
+					"patterns": [{ "include": "#extension-syntax" }, { "include": "$self" }]
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.float.mlsem",
+					"match": "\\b[0-9]+(_+[0-9]+)*\\.[0-9]+(_+[0-9]+)*([eE][\\-+]?[0-9]+(_+[0-9]+)*)?\\b"
+				},
+				{
+					"name": "constant.numeric.float.mlsem",
+					"match": "\\b[0-9]+(_+[0-9]+)*[eE][\\-+]?[0-9]+(_+[0-9]+)*\\b"
+				},
+				{
+					"name": "constant.numeric.integer.mlsem",
+					"match": "\\b[0-9]+(_+[0-9]+)*\\b"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.mlsem",
+					"match": "\\b(if|then|else|while|do|match|with|end|begin|return|break|continue)\\b"
+				},
+				{
+					"name": "keyword.declaration.mlsem",
+					"match": "\\b(let|val|fun|in|type|where|abstract|mut|suggest)\\b"
+				},
+				{
+					"name": "keyword.operator.word.mlsem",
+					"match": "\\b(and|or|is)\\b"
+				},
+				{
+					"name": "keyword.other.projection.mlsem",
+					"match": "\\b(fst|snd|hd|tl)\\b"
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"name": "constant.language.boolean.mlsem",
+					"match": "\\b(true|false)\\b"
+				},
+				{
+					"name": "constant.language.placeholder.mlsem",
+					"match": "\\b_\\b"
+				}
+			]
+		},
+		"builtin-types": {
+			"patterns": [
+				{
+					"name": "support.type.mlsem",
+					"match": "\\b(any|empty|tuple|arrow|record|enum|tag|int|char|float|string|list|bool)\\b"
+				}
+			]
+		},
+		"type-variables": {
+			"patterns": [
+				{
+					"name": "variable.other.type.weak.mlsem",
+					"match": "'_[a-zA-Z0-9][a-zA-Z0-9_]*"
+				},
+				{
+					"name": "variable.other.type.mlsem",
+					"match": "'[a-zA-Z0-9][a-zA-Z0-9_]*"
+				}
+			]
+		},
+		"row-variables": {
+			"patterns": [
+				{
+					"name": "variable.other.row.weak.mlsem",
+					"match": "`_[a-zA-Z0-9][a-zA-Z0-9_]*"
+				},
+				{
+					"name": "variable.other.row.mlsem",
+					"match": "`[a-zA-Z0-9][a-zA-Z0-9_]*"
+				}
+			]
+		},
+		"constructors": {
+			"patterns": [
+				{
+					"match": "\\b([A-Z][a-zA-Z0-9_']*)(?=\\()",
+					"captures": {
+						"1": { "name": "entity.name.tag.parametric.mlsem" }
+					}
+				},
+				{
+					"name": "constant.other.enum.mlsem",
+					"match": "\\b[A-Z][a-zA-Z0-9_']*\\b"
+				}
+			]
+		},
+		"operator-identifiers": {
+			"patterns": [
+				{
+					"match": "(\\()\\s*([\\[\\]!$%&*+\\-./:;<=>?@^|~]+)\\s*(\\))",
+					"captures": {
+						"1": { "name": "punctuation.definition.operator-id.begin.mlsem" },
+						"2": { "name": "entity.name.function.operator.mlsem" },
+						"3": { "name": "punctuation.definition.operator-id.end.mlsem" }
+					}
+				}
+			]
+		},
+		"operators": {
+			"patterns": [
+				{
+					"name": "keyword.operator.arrow.mlsem",
+					"match": "->"
+				},
+				{
+					"name": "keyword.operator.cons.mlsem",
+					"match": "::"
+				},
+				{
+					"name": "keyword.operator.assign.mlsem",
+					"match": ":="
+				},
+				{
+					"name": "keyword.operator.cast.mlsem",
+					"match": ":>!!|:>!|:>|:!!|:!"
+				},
+				{
+					"name": "keyword.operator.terminator.mlsem",
+					"match": ";;"
+				},
+				{
+					"name": "keyword.operator.range.mlsem",
+					"match": "\\.\\."
+				},
+				{
+					"name": "keyword.operator.hashtag.mlsem",
+					"match": "#"
+				},
+				{
+					"name": "keyword.operator.mlsem",
+					"match": "[=<>@$+\\-*/^%&|~!?][!$%&*+\\-./:;<=>?@^|~]*"
+				},
+				{
+					"name": "keyword.operator.backslash.mlsem",
+					"match": "\\\\"
+				}
+			]
+		},
+		"identifiers": {
+			"patterns": [
+				{
+					"name": "variable.other.mlsem",
+					"match": "\\b[a-z_][a-zA-Z0-9_']*\\b"
+				}
+			]
+		},
+		"punctuation": {
+			"patterns": [
+				{
+					"name": "punctuation.section.parens.begin.mlsem",
+					"match": "\\("
+				},
+				{
+					"name": "punctuation.section.parens.end.mlsem",
+					"match": "\\)"
+				},
+				{
+					"name": "punctuation.section.braces.begin.mlsem",
+					"match": "\\{"
+				},
+				{
+					"name": "punctuation.section.braces.end.mlsem",
+					"match": "\\}"
+				},
+				{
+					"name": "punctuation.section.brackets.begin.mlsem",
+					"match": "\\["
+				},
+				{
+					"name": "punctuation.section.brackets.end.mlsem",
+					"match": "\\]"
+				},
+				{
+					"name": "punctuation.separator.mlsem",
+					"match": "[;,]"
+				},
+				{
+					"name": "punctuation.accessor.mlsem",
+					"match": "\\."
+				},
+				{
+					"name": "punctuation.colon.mlsem",
+					"match": ":"
+				}
+			]
+		}
+	}
+}

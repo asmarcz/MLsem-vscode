@@ -17,6 +17,25 @@
 				"command": "mlsem.helloWorld",
 				"title": "MLsem: Hello World"
 			}
+		],
+		"grammars": [
+			{
+				"language": "mlsem",
+				"scopeName": "source.mlsem",
+				"path": "./syntaxes/mlsem.tmLanguage.json"
+			}
+		],
+		"languages": [
+			{
+				"id": "mlsem",
+				"aliases": [
+					"MLsem"
+				],
+				"configuration": "./language-configuration.json",
+				"extensions": [
+					".ml"
+				]
+			}
 		]
 	},
 	"scripts": {
