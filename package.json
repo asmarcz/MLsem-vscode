@@ -33,7 +33,7 @@
 				],
 				"configuration": "./language-configuration.json",
 				"extensions": [
-					".ml"
+					".mlsem"
 				]
 			}
 		]
