@@ -1,16 +1,40 @@
+import path from "path";
 import * as vscode from "vscode";
+import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 
+let client: LanguageClient | undefined;
 const output = vscode.window.createOutputChannel("MLsem", { log: true });
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
+	context.subscriptions.push(output);
 	output.info("Activating..");
 
 	const disposable = vscode.commands.registerCommand("mlsem.helloWorld", () => {
 		vscode.window.showInformationMessage("Hello from MLsem!");
 	});
-
 	context.subscriptions.push(disposable);
-	context.subscriptions.push(output);
+
+	const exePath = path.join(context.extensionPath, "lsp.exe");
+	const serverOptions: ServerOptions = {
+		run: {
+			command: exePath,
+		},
+		debug: {
+			command: exePath,
+		},
+	};
+	const clientOptions: LanguageClientOptions = {
+		documentSelector: [{ scheme: "file", language: "mlsem" }],
+		synchronize: {
+			fileEvents: vscode.workspace.createFileSystemWatcher("**/*.mlsem"),
+		},
+	};
+	client = new LanguageClient("mlsemLanguageClient", "MLsem Language Client", serverOptions, clientOptions);
+	context.subscriptions.push(client);
+
+	output.info("Starting language server..");
+	await client.start();
+	output.info("Language server started.");
 
 	output.info("Activated.");
 }

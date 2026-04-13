@@ -54,5 +54,8 @@
 		"@vscode/vsce": "^3.7.1",
 		"esbuild": "^0.28.0",
 		"typescript": "^6.0.2"
+	},
+	"dependencies": {
+		"vscode-languageclient": "^9.0.1"
 	}
 }
