@@ -1,4 +1,3 @@
-import path from "path";
 import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 
@@ -14,7 +13,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(disposable);
 
-	const exePath = path.join(context.extensionPath, "lsp.exe");
+	const exePath = vscode.Uri.joinPath(context.extensionUri, "lsp.exe").fsPath;
 	const serverOptions: ServerOptions = {
 		run: {
 			command: exePath,
