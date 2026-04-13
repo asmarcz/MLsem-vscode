@@ -22,13 +22,22 @@ export async function activate(context: vscode.ExtensionContext) {
 			command: exePath,
 		},
 	};
+
+	// https://stackoverflow.com/questions/52447872/how-to-enable-logs-for-language-server-in-visual-studio-code
+	// https://github.com/mun-lang/vscode-extension/blob/bbe1ebde2879ac4af853ad5f4bf43911c77a3c26/package.json#L88
+	// See package.json:mlsem.trace.server, this should propagate to the LSP $/setTrace.
+	const traceOutputChannel = vscode.window.createOutputChannel("MLsem Language Server Trace");
+	context.subscriptions.push(traceOutputChannel);
+
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "mlsem" }],
+		outputChannelName: "MLsem Language Client",
+		traceOutputChannel: traceOutputChannel,
 		synchronize: {
 			fileEvents: vscode.workspace.createFileSystemWatcher("**/*.mlsem"),
 		},
 	};
-	client = new LanguageClient("mlsemLanguageClient", "MLsem Language Client", serverOptions, clientOptions);
+	client = new LanguageClient("mlsem", "MLsem Language Client", serverOptions, clientOptions);
 
 	output.info("Starting language server..");
 	await client.start();

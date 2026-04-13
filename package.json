@@ -18,6 +18,22 @@
 				"title": "MLsem: Hello World"
 			}
 		],
+		"configuration": {
+			"title": "MLsem",
+			"properties": {
+				"mlsem.trace.server": {
+					"description": "Trace setting of the MLsem language server.",
+					"default": "off",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"scope": "window",
+					"type": "string"
+				}
+			}
+		},
 		"grammars": [
 			{
 				"language": "mlsem",
