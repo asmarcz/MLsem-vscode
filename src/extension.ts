@@ -30,7 +30,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		},
 	};
 	client = new LanguageClient("mlsemLanguageClient", "MLsem Language Client", serverOptions, clientOptions);
-	context.subscriptions.push(client);
 
 	output.info("Starting language server..");
 	await client.start();
@@ -39,7 +38,11 @@ export async function activate(context: vscode.ExtensionContext) {
 	output.info("Activated.");
 }
 
-export function deactivate() {
+export async function deactivate() {
 	output.info("Deactivating..");
+
+	await client?.dispose();
+	client = undefined;
+
 	output.info("Deactivated.");
 }
