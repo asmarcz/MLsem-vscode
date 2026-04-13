@@ -3,3 +3,4 @@ dist/
 *.vsix
 .claude
 lsp.exe
+.serena
