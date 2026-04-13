@@ -1,0 +1,14 @@
+`"mlsem.server.path"` configuration option:
+- chose `"machine-overridable"` for `"scope"`
+	- `"window"` seems to be used by extensions expecting the binary in PATH
+- survey of other VS Code extensions:
+	- `"window"` (default):
+		- Mun - https://github.com/mun-lang/vscode-extension/blob/bbe1ebde2879ac4af853ad5f4bf43911c77a3c26/package.json#L80-L87
+		- csharp-ls - https://github.com/vytautassurvila/vscode-csharp-ls/blob/969cdacb80ae46c6ba511dd2b28a9bafabbd9e0d/package.json#L62-L67
+		- ocaml - https://github.com/ocamllabs/vscode-ocaml-platform/blob/e61b87502771c6b335f1a225ee962c1f3a3a7be7/package.json#L314-L321
+	- `"machine-overridable"`:
+		- rust-analyzer - https://github.com/rust-lang/rust-analyzer/blob/2fef13cd133bc8f2c12f33d2b3658c5e64d2e611/editors/code/package.json#L625-L633
+		- clangd - https://github.com/clangd/vscode-clangd/blob/eb1ab6c71f5a418298165739ef3e26901cfa0026/package.json#L95-L99
+		- zig - https://codeberg.org/ziglang/vscode-zig/src/commit/2820a67904111066ab5d36f93f28817ca4c85888/package.json#L215-L220
+	- `"resource"`:
+		- vscode-go - https://github.com/golang/vscode-go/blob/a8fb60c63210f8a4d63548cbe21bc2c9941f36a1/extension/package.json#L1996-L2024

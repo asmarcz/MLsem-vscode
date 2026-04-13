@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
+import { Config } from "./config";
 
 let client: LanguageClient | undefined;
 const output = vscode.window.createOutputChannel("MLsem", { log: true });
@@ -8,12 +9,17 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(output);
 	output.info("Activating..");
 
+	const config = new Config();
+
 	const disposable = vscode.commands.registerCommand("mlsem.helloWorld", () => {
 		vscode.window.showInformationMessage("Hello from MLsem!");
 	});
 	context.subscriptions.push(disposable);
 
-	const exePath = vscode.Uri.joinPath(context.extensionUri, "lsp.exe").fsPath;
+	const exePath = config.serverPath;
+	if (exePath == null) {
+		return Promise.reject("The `mlsem.server.path` option in VS Code settings is not set");
+	}
 	const serverOptions: ServerOptions = {
 		run: {
 			command: exePath,

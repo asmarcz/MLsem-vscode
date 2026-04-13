@@ -21,6 +21,15 @@
 		"configuration": {
 			"title": "MLsem",
 			"properties": {
+				"mlsem.server.path": {
+					"default": null,
+					"description": "Path to MLsem LSP server executable.",
+					"scope": "machine-overridable",
+					"type": [
+						"null",
+						"string"
+					]
+				},
 				"mlsem.trace.server": {
 					"description": "Trace setting of the MLsem language server.",
 					"default": "off",
