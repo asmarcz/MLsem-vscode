@@ -26,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		},
 		debug: {
 			command: exePath,
+			options: { env: { MLSEM_LOG: "1", MLSEM_LOG_PACKETS: config.isTrace ? "1" : "0" } },
 		},
 	};
 

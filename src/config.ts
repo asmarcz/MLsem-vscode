@@ -9,6 +9,11 @@ export class Config {
 		return vscode.workspace.getConfiguration(this.rootSection);
 	}
 
+	get isTrace(): boolean {
+		const trace = this.cfg.get<string>("trace.server");
+		return trace === "messages" || trace === "verbose";
+	}
+
 	get serverPath(): string | null {
 		// biome-ignore lint/style/noNonNullAssertion: Keep in sync with package.json.
 		return this.cfg.get<string | null>("server.path")!;
