@@ -19,6 +19,9 @@ Options:
                         accepts "now" (default), "all" (no cutoff), or
                         "HH:MM:SS [AM|PM]"
   -p, --pretty          Pretty-print the JSON body
+  -d, --depth <n>       Pretty-print only to depth <n>; deeper levels render
+                        as compact JSON. Use "all" for unbounded depth
+                        (same as --pretty). Implies --pretty.
   -b, --brief           Print just "[time]  [method]" per entry (no JSON)
   -h, --help            Show this help
 
@@ -46,6 +49,7 @@ function parseCli() {
 				exclude: { type: "string", short: "x", multiple: true },
 				since: { type: "string", short: "s", default: "now" },
 				pretty: { type: "boolean", short: "p" },
+				depth: { type: "string", short: "d" },
 				brief: { type: "boolean", short: "b" },
 			},
 		});
@@ -117,9 +121,28 @@ type Entry = {
 let current: Entry | null = null;
 let bodyLines: string[] = [];
 
+const maxDepth =
+	values.depth === "all" ? Infinity : values.depth !== undefined ? Number(values.depth) : values.pretty ? Infinity : 0;
+
 function format(entry: Entry): string {
 	if (values.brief) return `${entry.time}  ${entry.method}`;
-	return JSON.stringify(entry, null, values.pretty ? 2 : undefined);
+	if (maxDepth === 0) return JSON.stringify(entry);
+	return prettyJSON(entry, maxDepth, 0);
+}
+
+function prettyJSON(val: unknown, maxDepth: number, level: number): string {
+	if (val === null || typeof val !== "object" || level >= maxDepth) return JSON.stringify(val);
+	const pad = "  ".repeat(level + 1);
+	const close = "  ".repeat(level);
+	if (Array.isArray(val)) {
+		if (val.length === 0) return "[]";
+		const items = val.map((v) => pad + prettyJSON(v, maxDepth, level + 1));
+		return `[\n${items.join(",\n")}\n${close}]`;
+	}
+	const entries = Object.entries(val);
+	if (entries.length === 0) return "{}";
+	const items = entries.map(([k, v]) => `${pad}${JSON.stringify(k)}: ${prettyJSON(v, maxDepth, level + 1)}`);
+	return `{\n${items.join(",\n")}\n${close}}`;
 }
 
 function flush() {
