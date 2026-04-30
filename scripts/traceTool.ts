@@ -33,31 +33,27 @@ Examples:
     traceTool.ts --since "11:55:00 PM" trace.log # shifted to yesterday
                                                  # if past current time`;
 
-let values: {
-	help?: boolean;
-	method?: string[];
-	since?: string;
-	pretty?: boolean;
-	brief?: boolean;
-};
-let positionals: string[];
-try {
-	({ values, positionals } = parseArgs({
-		allowPositionals: true,
-		args: Bun.argv.slice(2),
-		options: {
-			help: { type: "boolean", short: "h" },
-			method: { type: "string", short: "m", multiple: true },
-			since: { type: "string", short: "s", default: "now" },
-			pretty: { type: "boolean", short: "p" },
-			brief: { type: "boolean", short: "b" },
-		},
-	}));
-} catch (err) {
-	console.error(err instanceof Error ? err.message : String(err));
-	console.error(usage);
-	process.exit(2);
+function parseCli() {
+	try {
+		return parseArgs({
+			allowPositionals: true,
+			args: Bun.argv.slice(2),
+			options: {
+				help: { type: "boolean", short: "h" },
+				method: { type: "string", short: "m", multiple: true },
+				since: { type: "string", short: "s", default: "now" },
+				pretty: { type: "boolean", short: "p" },
+				brief: { type: "boolean", short: "b" },
+			},
+		});
+	} catch (err) {
+		console.error(err instanceof Error ? err.message : String(err));
+		console.error(usage);
+		process.exit(2);
+	}
 }
+
+const { values, positionals } = parseCli();
 
 if (values.help || positionals.length === 0) {
 	console.log(usage);
