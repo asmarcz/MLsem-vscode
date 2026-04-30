@@ -8,12 +8,30 @@ import { parseArgs } from "node:util";
 
 const usage = `Usage: traceTool.ts [options] <file>
 
-Watch a file and print new lines as they are appended.
+Watch a file, parse LSP trace entries, and emit them as JSON lines.
 
 Options:
-  -h, --help   Show this help`;
+  -m, --method <pat>    Only emit entries whose method contains <pat> as a
+                        substring (repeatable; comma-separated also accepted)
+  -s, --since <time>    Only emit entries at or after this time;
+                        accepts "now" (default), "all" (no cutoff), or
+                        "HH:MM:SS [AM|PM]"
+  -h, --help            Show this help
 
-let values: { help?: boolean };
+Examples:
+  Method filter (-m, --method):
+    traceTool.ts -m inlay trace.log              # one substring
+    traceTool.ts -m inlay -m hover trace.log     # repeated flag
+    traceTool.ts -m inlay,hover trace.log        # comma-separated
+
+  Time cutoff (-s, --since):
+    traceTool.ts trace.log                       # default: --since now
+    traceTool.ts --since all trace.log           # no cutoff
+    traceTool.ts --since "10:30:00 AM" trace.log # explicit time
+    traceTool.ts --since "11:55:00 PM" trace.log # shifted to yesterday
+                                                 # if past current time`;
+
+let values: { help?: boolean; method?: string[]; since?: string };
 let positionals: string[];
 try {
 	({ values, positionals } = parseArgs({
@@ -21,6 +39,8 @@ try {
 		args: Bun.argv.slice(2),
 		options: {
 			help: { type: "boolean", short: "h" },
+			method: { type: "string", short: "m", multiple: true },
+			since: { type: "string", short: "s", default: "now" },
 		},
 	}));
 } catch (err) {
@@ -35,6 +55,34 @@ if (values.help || positionals.length === 0) {
 }
 
 const path = positionals[0];
+const methodFilter =
+	values.method
+		?.flatMap((m) => m.split(","))
+		.filter(Boolean)
+		.map((m) => m.toLowerCase()) ?? null;
+const sinceSeconds = values.since === "all" ? null : parseTimeArg(values.since ?? "now");
+
+function parseTimeArg(s: string): number {
+	const now = nowSeconds();
+	if (s === "now") return now;
+	const t = timeToSeconds(s);
+	return t > now ? t - 86400 : t;
+}
+
+function nowSeconds(): number {
+	const d = new Date();
+	return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+}
+
+function timeToSeconds(t: string): number {
+	const m = /^(\d+):(\d+):(\d+)(?:\s+(AM|PM))?$/i.exec(t);
+	if (!m) throw new Error(`bad time: ${t}`);
+	let h = Number(m[1]);
+	const meridiem = m[4]?.toUpperCase();
+	if (meridiem === "PM" && h !== 12) h += 12;
+	else if (meridiem === "AM" && h === 12) h = 0;
+	return h * 3600 + Number(m[2]) * 60 + Number(m[3]);
+}
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
 
@@ -55,9 +103,13 @@ let current: Entry | null = null;
 let bodyLines: string[] = [];
 
 function flush() {
-	if (!current) return;
-	if (bodyLines.length > 0) current.body = JSON.parse(bodyLines.join("\n"));
-	console.log(JSON.stringify(current));
+	const entry = current;
+	if (!entry) return;
+	if (bodyLines.length > 0) entry.body = JSON.parse(bodyLines.join("\n"));
+	const keep =
+		(!methodFilter || methodFilter.some((p) => entry.method.toLowerCase().includes(p))) &&
+		(sinceSeconds === null || timeToSeconds(entry.time) >= sinceSeconds);
+	if (keep) console.log(JSON.stringify(entry));
 	current = null;
 	bodyLines = [];
 }
