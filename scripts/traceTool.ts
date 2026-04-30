@@ -13,6 +13,8 @@ Watch a file, parse LSP trace entries, and emit them as JSON lines.
 Options:
   -m, --method <pat>    Only emit entries whose method contains <pat> as a
                         substring (repeatable; comma-separated also accepted)
+  -x, --exclude <pat>   Skip entries whose method contains <pat>; same syntax
+                        as --method. Applied after --method.
   -s, --since <time>    Only emit entries at or after this time;
                         accepts "now" (default), "all" (no cutoff), or
                         "HH:MM:SS [AM|PM]"
@@ -41,6 +43,7 @@ function parseCli() {
 			options: {
 				help: { type: "boolean", short: "h" },
 				method: { type: "string", short: "m", multiple: true },
+				exclude: { type: "string", short: "x", multiple: true },
 				since: { type: "string", short: "s", default: "now" },
 				pretty: { type: "boolean", short: "p" },
 				brief: { type: "boolean", short: "b" },
@@ -61,11 +64,17 @@ if (values.help || positionals.length === 0) {
 }
 
 const path = positionals[0];
-const methodFilter =
-	values.method
-		?.flatMap((m) => m.split(","))
-		.filter(Boolean)
-		.map((m) => m.toLowerCase()) ?? null;
+function patterns(raw: string[] | undefined): string[] | null {
+	return (
+		raw
+			?.flatMap((m) => m.split(","))
+			.filter(Boolean)
+			.map((m) => m.toLowerCase()) ?? null
+	);
+}
+
+const methodFilter = patterns(values.method);
+const excludeFilter = patterns(values.exclude);
 const sinceSeconds = values.since === "all" ? null : parseTimeArg(values.since ?? "now");
 
 function parseTimeArg(s: string): number {
@@ -117,8 +126,10 @@ function flush() {
 	const entry = current;
 	if (!entry) return;
 	if (bodyLines.length > 0) entry.body = JSON.parse(bodyLines.join("\n"));
+	const lower = entry.method.toLowerCase();
 	const keep =
-		(!methodFilter || methodFilter.some((p) => entry.method.toLowerCase().includes(p))) &&
+		(!methodFilter || methodFilter.some((p) => lower.includes(p))) &&
+		!excludeFilter?.some((p) => lower.includes(p)) &&
 		(sinceSeconds === null || timeToSeconds(entry.time) >= sinceSeconds);
 	if (keep) console.log(format(entry));
 	current = null;
