@@ -16,6 +16,8 @@ Options:
   -s, --since <time>    Only emit entries at or after this time;
                         accepts "now" (default), "all" (no cutoff), or
                         "HH:MM:SS [AM|PM]"
+  -p, --pretty          Pretty-print the JSON body
+  -b, --brief           Print just "[time]  [method]" per entry (no JSON)
   -h, --help            Show this help
 
 Examples:
@@ -31,7 +33,13 @@ Examples:
     traceTool.ts --since "11:55:00 PM" trace.log # shifted to yesterday
                                                  # if past current time`;
 
-let values: { help?: boolean; method?: string[]; since?: string };
+let values: {
+	help?: boolean;
+	method?: string[];
+	since?: string;
+	pretty?: boolean;
+	brief?: boolean;
+};
 let positionals: string[];
 try {
 	({ values, positionals } = parseArgs({
@@ -41,6 +49,8 @@ try {
 			help: { type: "boolean", short: "h" },
 			method: { type: "string", short: "m", multiple: true },
 			since: { type: "string", short: "s", default: "now" },
+			pretty: { type: "boolean", short: "p" },
+			brief: { type: "boolean", short: "b" },
 		},
 	}));
 } catch (err) {
@@ -102,6 +112,11 @@ type Entry = {
 let current: Entry | null = null;
 let bodyLines: string[] = [];
 
+function format(entry: Entry): string {
+	if (values.brief) return `${entry.time}  ${entry.method}`;
+	return JSON.stringify(entry, null, values.pretty ? 2 : undefined);
+}
+
 function flush() {
 	const entry = current;
 	if (!entry) return;
@@ -109,7 +124,7 @@ function flush() {
 	const keep =
 		(!methodFilter || methodFilter.some((p) => entry.method.toLowerCase().includes(p))) &&
 		(sinceSeconds === null || timeToSeconds(entry.time) >= sinceSeconds);
-	if (keep) console.log(JSON.stringify(entry));
+	if (keep) console.log(format(entry));
 	current = null;
 	bodyLines = [];
 }
