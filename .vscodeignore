@@ -9,3 +9,5 @@ esbuild.config.mjs
 node_modules/**
 src/**
 tsconfig.json
+scripts
+docs
