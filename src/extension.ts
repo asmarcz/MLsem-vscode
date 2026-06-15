@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 import { Config } from "./config";
+import { openMergePanel } from "./mergePanel";
 
 let client: LanguageClient | undefined;
 const output = vscode.window.createOutputChannel("MLsem", { log: true });
@@ -11,10 +12,51 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const config = new Config();
 
-	const disposable = vscode.commands.registerCommand("mlsem.helloWorld", () => {
+	const helloDisposable = vscode.commands.registerCommand("mlsem.helloWorld", () => {
 		vscode.window.showInformationMessage("Hello from MLsem!");
 	});
-	context.subscriptions.push(disposable);
+	context.subscriptions.push(helloDisposable);
+
+	const mergeDisposable = vscode.commands.registerCommand(
+		"mlsem.mergeOverloads",
+		(uri?: vscode.Uri, position?: vscode.Position) => {
+			if (!client) {
+				vscode.window.showErrorMessage("MLsem language server is not running.");
+				return;
+			}
+			// From the code-action lightbulb we get the binding's location; from
+			// the command palette we get nothing, so fall back to the active
+			// editor's caret. Either way the open panel then follows the cursor.
+			let targetUri = uri;
+			let targetPosition = position;
+			if (!targetUri || !targetPosition) {
+				const editor = vscode.window.activeTextEditor;
+				if (editor?.document.languageId === "mlsem") {
+					targetUri = editor.document.uri;
+					targetPosition = editor.selection.active;
+				}
+			}
+			openMergePanel(context.extensionUri, client, targetUri, targetPosition);
+		},
+	);
+	context.subscriptions.push(mergeDisposable);
+
+	const codeActionProvider = vscode.languages.registerCodeActionsProvider(
+		{ language: "mlsem" },
+		{
+			provideCodeActions(document, range) {
+				const action = new vscode.CodeAction("MLsem: Merge overloads…", vscode.CodeActionKind.RefactorRewrite);
+				action.command = {
+					command: "mlsem.mergeOverloads",
+					title: "MLsem: Merge overloads…",
+					arguments: [document.uri, range.start],
+				};
+				return [action];
+			},
+		},
+		{ providedCodeActionKinds: [vscode.CodeActionKind.RefactorRewrite] },
+	);
+	context.subscriptions.push(codeActionProvider);
 
 	const exePath = config.serverPath;
 	if (exePath == null) {
