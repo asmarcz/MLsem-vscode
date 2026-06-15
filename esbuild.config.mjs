@@ -23,6 +23,7 @@ const configs = [
 		format: "iife",
 		platform: "browser",
 		target: "es2022",
+		loader: { ".css": "text" },
 		sourcemap: !isMinify,
 		minify: isMinify,
 	},
