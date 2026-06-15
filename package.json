@@ -18,8 +18,8 @@
 				"title": "MLsem: Hello World"
 			},
 			{
-				"command": "mlsem.mergeOverloads",
-				"title": "MLsem: Merge overloads…"
+				"command": "mlsem.typeToolkit",
+				"title": "MLsem: Type toolkit…"
 			}
 		],
 		"configuration": {

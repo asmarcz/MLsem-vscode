@@ -7,6 +7,8 @@ interface OverloadsResult {
 	name: string;
 	declared: boolean;
 	overloads: string[];
+	overloadVars: string[][];
+	concreteTypes: string[];
 }
 
 interface MergePreviewResult {
@@ -20,7 +22,7 @@ interface EditRange {
 	end: { line: number; character: number };
 }
 
-interface ApplyMergeResult {
+interface EditResult {
 	ok: boolean;
 	uri?: string;
 	edits?: { range: EditRange; newText: string }[];
@@ -28,10 +30,25 @@ interface ApplyMergeResult {
 	error?: string;
 }
 
+interface InstantiatePreviewResult {
+	ok: boolean;
+	overloads?: string[];
+	stale?: boolean;
+	error?: string;
+}
+
+// One overload's variable -> concrete-type assignments.
+interface Instantiation {
+	overload: string;
+	assignments: { var: string; type: string }[];
+}
+
 type WebviewToExtension =
 	| { type: "ready" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[] }
-	| { type: "apply"; name: string; overloadTexts: string[] };
+	| { type: "apply"; name: string; overloadTexts: string[] }
+	| { type: "requestInstantiatePreview"; name: string; instantiations: Instantiation[] }
+	| { type: "applyInstantiate"; name: string; instantiations: Instantiation[] };
 
 let panel: vscode.WebviewPanel | undefined;
 let currentUri: vscode.Uri | undefined;
@@ -64,7 +81,7 @@ function getHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: strin
 	<meta charset="UTF-8">
 	<meta http-equiv="Content-Security-Policy" content="${csp}">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>MLsem: Merge Overloads</title>
+	<title>MLsem: Type toolkit</title>
 </head>
 <body>
 	<div id="root"></div>
@@ -88,6 +105,8 @@ function postOverloads(result: OverloadsResult): void {
 		found: result.found,
 		binding: { name: result.name, declared: result.declared },
 		overloads: result.overloads,
+		overloadVars: result.overloadVars,
+		concreteTypes: result.concreteTypes,
 	});
 }
 
@@ -112,7 +131,7 @@ async function followCursor(uri: vscode.Uri, position: vscode.Position): Promise
 	postOverloads(result);
 }
 
-export function openMergePanel(
+export function openTypeToolkit(
 	extensionUri: vscode.Uri,
 	lspClient: LanguageClient,
 	uri: vscode.Uri | undefined,
@@ -131,7 +150,7 @@ export function openMergePanel(
 	}
 
 	const nonce = getNonce();
-	panel = vscode.window.createWebviewPanel("mlsemMergeOverloads", "MLsem: Merge Overloads", vscode.ViewColumn.Beside, {
+	panel = vscode.window.createWebviewPanel("mlsemMergeOverloads", "MLsem: Type toolkit", vscode.ViewColumn.Beside, {
 		enableScripts: true,
 		retainContextWhenHidden: true,
 	});
@@ -156,6 +175,37 @@ export function openMergePanel(
 		followTimer = setTimeout(() => followCursor(uri, position), 120);
 	});
 
+	// Apply an edit result to the workspace. On [stale] the binding changed
+	// under us → refresh the panel (not an error); otherwise return any genuine
+	// error so the caller can surface it.
+	async function applyEditResult(result: EditResult): Promise<string | undefined> {
+		if (result.ok && result.edits && result.uri) {
+			const we = new vscode.WorkspaceEdit();
+			const editUri = vscode.Uri.parse(result.uri);
+			for (const ed of result.edits) {
+				we.replace(
+					editUri,
+					new vscode.Range(
+						new vscode.Position(ed.range.start.line, ed.range.start.character),
+						new vscode.Position(ed.range.end.line, ed.range.end.character),
+					),
+					ed.newText,
+				);
+			}
+			await vscode.workspace.applyEdit(we);
+			// Re-fetch so the panel reflects the just-written declarations. The
+			// edit may not move the caret (e.g. an instantiation that keeps the
+			// same number of [val] lines), so we cannot rely on cursor-follow.
+			await refreshCurrent();
+			return undefined;
+		}
+		if (result.stale) {
+			await refreshCurrent();
+			return undefined;
+		}
+		return result.error;
+	}
+
 	panel.webview.onDidReceiveMessage(async (message: WebviewToExtension) => {
 		if (!panel || !client) return;
 
@@ -176,37 +226,42 @@ export function openMergePanel(
 		} else if (message.type === "apply") {
 			const uri = currentUri;
 			if (!uri) return;
-			const result = await client.sendRequest<ApplyMergeResult>("mlsem/applyMerge", {
+			const result = await client.sendRequest<EditResult>("mlsem/applyMerge", {
 				textDocument: { uri: uri.toString() },
 				name: message.name,
 				overloadTexts: message.overloadTexts,
 				text: textOf(uri),
 			});
-
-			let applyError: string | undefined;
-			if (result.ok && result.edits && result.uri) {
-				const we = new vscode.WorkspaceEdit();
-				const editUri = vscode.Uri.parse(result.uri);
-				for (const ed of result.edits) {
-					we.replace(
-						editUri,
-						new vscode.Range(
-							new vscode.Position(ed.range.start.line, ed.range.start.character),
-							new vscode.Position(ed.range.end.line, ed.range.end.character),
-						),
-						ed.newText,
-					);
-				}
-				await vscode.workspace.applyEdit(we);
-			} else if (result.stale) {
-				// The overload set changed under us; refresh the panel so the user
-				// re-confirms against the current types (not an error).
-				await refreshCurrent();
-			} else {
-				applyError = result.error;
-			}
-			// Clear the applying state; surface a genuine failure if there was one.
+			const applyError = await applyEditResult(result);
 			panel?.webview.postMessage({ type: "applied", error: applyError });
+		} else if (message.type === "requestInstantiatePreview") {
+			const uri = currentUri;
+			if (!uri) return;
+			const result = await client.sendRequest<InstantiatePreviewResult>("mlsem/instantiatePreview", {
+				textDocument: { uri: uri.toString() },
+				name: message.name,
+				instantiations: message.instantiations,
+				text: textOf(uri),
+			});
+			// A stale preview is silently ignored (the next refresh reconciles);
+			// only forward a usable result or a genuine error.
+			panel?.webview.postMessage({
+				type: "instantiatePreview",
+				ok: result.ok,
+				overloads: result.overloads,
+				error: result.stale ? undefined : result.error,
+			});
+		} else if (message.type === "applyInstantiate") {
+			const uri = currentUri;
+			if (!uri) return;
+			const result = await client.sendRequest<EditResult>("mlsem/applyInstantiate", {
+				textDocument: { uri: uri.toString() },
+				name: message.name,
+				instantiations: message.instantiations,
+				text: textOf(uri),
+			});
+			const applyError = await applyEditResult(result);
+			panel?.webview.postMessage({ type: "instantiated", error: applyError });
 		}
 	});
 

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 import { Config } from "./config";
-import { openMergePanel } from "./mergePanel";
+import { openTypeToolkit } from "./mergePanel";
 
 let client: LanguageClient | undefined;
 const output = vscode.window.createOutputChannel("MLsem", { log: true });
@@ -18,7 +18,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(helloDisposable);
 
 	const mergeDisposable = vscode.commands.registerCommand(
-		"mlsem.mergeOverloads",
+		"mlsem.typeToolkit",
 		(uri?: vscode.Uri, position?: vscode.Position) => {
 			if (!client) {
 				vscode.window.showErrorMessage("MLsem language server is not running.");
@@ -36,7 +36,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					targetPosition = editor.selection.active;
 				}
 			}
-			openMergePanel(context.extensionUri, client, targetUri, targetPosition);
+			openTypeToolkit(context.extensionUri, client, targetUri, targetPosition);
 		},
 	);
 	context.subscriptions.push(mergeDisposable);
@@ -45,10 +45,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		{ language: "mlsem" },
 		{
 			provideCodeActions(document, range) {
-				const action = new vscode.CodeAction("MLsem: Merge overloads…", vscode.CodeActionKind.RefactorRewrite);
+				const action = new vscode.CodeAction("MLsem: Type toolkit…", vscode.CodeActionKind.RefactorRewrite);
 				action.command = {
-					command: "mlsem.mergeOverloads",
-					title: "MLsem: Merge overloads…",
+					command: "mlsem.typeToolkit",
+					title: "MLsem: Type toolkit…",
 					arguments: [document.uri, range.start],
 				};
 				return [action];
