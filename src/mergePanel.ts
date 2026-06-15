@@ -6,7 +6,7 @@ interface OverloadsResult {
 	found: boolean;
 	name: string;
 	declared: boolean;
-	overloads: { index: number; text: string }[];
+	overloads: string[];
 }
 
 interface MergePreviewResult {
@@ -15,39 +15,39 @@ interface MergePreviewResult {
 	error?: string;
 }
 
+interface EditRange {
+	start: { line: number; character: number };
+	end: { line: number; character: number };
+}
+
 interface ApplyMergeResult {
 	ok: boolean;
-	edit?: {
-		uri: string;
-		range: {
-			start: { line: number; character: number };
-			end: { line: number; character: number };
-		};
-		newText: string;
-	};
+	uri?: string;
+	edits?: { range: EditRange; newText: string }[];
+	stale?: boolean;
 	error?: string;
 }
 
 type WebviewToExtension =
 	| { type: "ready" }
-	| { type: "requestPreview"; indices: number[] }
-	| { type: "apply"; indices: number[] };
+	| { type: "requestPreview"; name: string; overloadTexts: string[] }
+	| { type: "apply"; name: string; overloadTexts: string[] };
 
 let panel: vscode.WebviewPanel | undefined;
 let currentUri: vscode.Uri | undefined;
 let currentPosition: vscode.Position | undefined;
 let client: LanguageClient | undefined;
 let followTimer: ReturnType<typeof setTimeout> | undefined;
-// Serialize Apply: webview message handlers run concurrently and rapid clicks
-// can post several "apply" messages, so without this lock multiple applyMerge
-// requests reach the server before the first edit's didChange does — each sees
-// the binding as undeclared and inserts a duplicate declaration. Dropping
-// re-entrant applies (rather than queueing) collapses a click storm to one
-// edit; a deliberate later Apply re-runs after didChange and replaces.
-let applyInProgress = false;
 
 function getNonce(): string {
 	return crypto.randomBytes(16).toString("hex");
+}
+
+// The live text of a document, sent with every request so the server typechecks
+// and resolves (by position or name) against exactly what the editor shows.
+function textOf(uri: vscode.Uri): string | undefined {
+	const s = uri.toString();
+	return vscode.workspace.textDocuments.find((d) => d.uri.toString() === s)?.getText();
 }
 
 function getHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string): string {
@@ -78,6 +78,7 @@ async function fetchOverloads(uri: vscode.Uri, position: vscode.Position): Promi
 	return client.sendRequest<OverloadsResult>("mlsem/overloads", {
 		textDocument: { uri: uri.toString() },
 		position: { line: position.line, character: position.character },
+		text: textOf(uri),
 	});
 }
 
@@ -109,15 +110,6 @@ async function followCursor(uri: vscode.Uri, position: vscode.Position): Promise
 	currentUri = uri;
 	currentPosition = position;
 	postOverloads(result);
-}
-
-// The live text of the targeted document, sent with preview/apply requests so
-// the server acts on exactly what the editor shows — not on its cache, which
-// lags until the previous edit's didChange is processed.
-function currentText(): string | undefined {
-	if (!currentUri) return undefined;
-	const uriStr = currentUri.toString();
-	return vscode.workspace.textDocuments.find((d) => d.uri.toString() === uriStr)?.getText();
 }
 
 export function openMergePanel(
@@ -170,41 +162,51 @@ export function openMergePanel(
 		if (message.type === "ready") {
 			await refreshCurrent();
 		} else if (message.type === "requestPreview") {
-			if (!currentUri || !currentPosition) return;
+			// Snapshot the target so cursor-follow retargeting mid-request can't
+			// switch which document/binding this reply refers to.
+			const uri = currentUri;
+			if (!uri) return;
 			const result = await client.sendRequest<MergePreviewResult>("mlsem/mergePreview", {
-				textDocument: { uri: currentUri.toString() },
-				position: { line: currentPosition.line, character: currentPosition.character },
-				indices: message.indices,
-				text: currentText(),
+				textDocument: { uri: uri.toString() },
+				name: message.name,
+				overloadTexts: message.overloadTexts,
+				text: textOf(uri),
 			});
-			panel.webview.postMessage({ type: "preview", ok: result.ok, text: result.text, error: result.error });
+			panel?.webview.postMessage({ type: "preview", ok: result.ok, text: result.text, error: result.error });
 		} else if (message.type === "apply") {
-			if (!currentUri || !currentPosition || applyInProgress) return;
-			applyInProgress = true;
-			try {
-				const result = await client.sendRequest<ApplyMergeResult>("mlsem/applyMerge", {
-					textDocument: { uri: currentUri.toString() },
-					position: { line: currentPosition.line, character: currentPosition.character },
-					indices: message.indices,
-					text: currentText(),
-				});
+			const uri = currentUri;
+			if (!uri) return;
+			const result = await client.sendRequest<ApplyMergeResult>("mlsem/applyMerge", {
+				textDocument: { uri: uri.toString() },
+				name: message.name,
+				overloadTexts: message.overloadTexts,
+				text: textOf(uri),
+			});
 
-				if (result.ok && result.edit) {
-					const we = new vscode.WorkspaceEdit();
-					const editUri = vscode.Uri.parse(result.edit.uri);
-					const range = new vscode.Range(
-						new vscode.Position(result.edit.range.start.line, result.edit.range.start.character),
-						new vscode.Position(result.edit.range.end.line, result.edit.range.end.character),
+			let applyError: string | undefined;
+			if (result.ok && result.edits && result.uri) {
+				const we = new vscode.WorkspaceEdit();
+				const editUri = vscode.Uri.parse(result.uri);
+				for (const ed of result.edits) {
+					we.replace(
+						editUri,
+						new vscode.Range(
+							new vscode.Position(ed.range.start.line, ed.range.start.character),
+							new vscode.Position(ed.range.end.line, ed.range.end.character),
+						),
+						ed.newText,
 					);
-					we.replace(editUri, range, result.edit.newText);
-					await vscode.workspace.applyEdit(we);
-					panel?.webview.postMessage({ type: "applied", ok: true });
-				} else {
-					panel?.webview.postMessage({ type: "applied", ok: false, error: result.error });
 				}
-			} finally {
-				applyInProgress = false;
+				await vscode.workspace.applyEdit(we);
+			} else if (result.stale) {
+				// The overload set changed under us; refresh the panel so the user
+				// re-confirms against the current types (not an error).
+				await refreshCurrent();
+			} else {
+				applyError = result.error;
 			}
+			// Clear the applying state; surface a genuine failure if there was one.
+			panel?.webview.postMessage({ type: "applied", error: applyError });
 		}
 	});
 

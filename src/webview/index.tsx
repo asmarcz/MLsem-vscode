@@ -9,11 +9,6 @@ declare function acquireVsCodeApi(): {
 
 const vscodeApi = acquireVsCodeApi();
 
-interface Overload {
-	index: number;
-	text: string;
-}
-
 interface Binding {
 	name: string;
 	declared: boolean;
@@ -22,24 +17,28 @@ interface Binding {
 interface AppState {
 	found: boolean;
 	binding: Binding | null;
-	overloads: Overload[];
-	selected: number[];
+	// Overloads are identified by their rendered text — the same identity the
+	// server matches on — so selection survives edits and never refers to a
+	// stale index.
+	overloads: string[];
+	selected: string[];
 	preview: string | null;
 	applying: boolean;
 	staleSelection: boolean;
+	error: string | null;
 }
 
 type ExtensionMessage =
-	| { type: "overloads"; found: boolean; binding: Binding; overloads: Overload[] }
+	| { type: "overloads"; found: boolean; binding: Binding; overloads: string[] }
 	| { type: "preview"; ok: boolean; text?: string; error?: string }
-	| { type: "applied"; ok: boolean; error?: string };
+	| { type: "applied"; error?: string };
 
 type Action =
-	| { type: "OVERLOADS"; found: boolean; binding: Binding; overloads: Overload[] }
-	| { type: "TOGGLE"; index: number }
+	| { type: "OVERLOADS"; found: boolean; binding: Binding; overloads: string[] }
+	| { type: "TOGGLE"; text: string }
 	| { type: "PREVIEW"; ok: boolean; text?: string; error?: string }
 	| { type: "APPLYING" }
-	| { type: "APPLIED"; ok: boolean; error?: string };
+	| { type: "APPLIED"; error?: string };
 
 const initialState: AppState = {
 	found: false,
@@ -49,25 +48,8 @@ const initialState: AppState = {
 	preview: null,
 	applying: false,
 	staleSelection: false,
+	error: null,
 };
-
-function reconcileSelected(
-	oldOverloads: Overload[],
-	oldSelected: number[],
-	newOverloads: Overload[],
-): { selected: number[]; stale: boolean } {
-	const selectedTexts = new Set(
-		oldSelected.map((i) => oldOverloads.find((o) => o.index === i)?.text).filter(Boolean) as string[],
-	);
-	const newSelected: number[] = [];
-	for (const o of newOverloads) {
-		if (selectedTexts.has(o.text)) {
-			newSelected.push(o.index);
-		}
-	}
-	const stale = newSelected.length < oldSelected.length;
-	return { selected: newSelected, stale };
-}
 
 function reducer(state: AppState, action: Action): AppState {
 	switch (action.type) {
@@ -81,37 +63,41 @@ function reducer(state: AppState, action: Action): AppState {
 					selected: [],
 					preview: null,
 					staleSelection: false,
+					error: null,
 				};
 			}
-			// Same binding refreshed (e.g. after a save) → keep the selection by
-			// matching overload text. A different binding → start clean.
+			// Same binding refreshed (save, or a stale-triggered refresh) → keep
+			// the selections whose overload text still exists. A different binding
+			// → start clean.
 			const sameBinding = state.found && state.binding?.name === action.binding?.name;
-			const { selected, stale } = sameBinding
-				? reconcileSelected(state.overloads, state.selected, action.overloads)
-				: { selected: [] as number[], stale: false };
+			const kept = sameBinding ? state.selected.filter((t) => action.overloads.includes(t)) : [];
+			const stale = kept.length < state.selected.length;
 			return {
 				...state,
 				found: true,
 				binding: action.binding,
 				overloads: action.overloads,
-				selected,
+				selected: kept,
 				preview: null,
 				staleSelection: stale,
+				error: null,
 			};
 		}
 		case "TOGGLE": {
-			const idx = action.index;
-			const selected = state.selected.includes(idx)
-				? state.selected.filter((i) => i !== idx)
-				: [...state.selected, idx];
-			return { ...state, selected, preview: null };
+			const t = action.text;
+			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
+			return { ...state, selected, preview: null, error: null };
 		}
 		case "PREVIEW":
-			return { ...state, preview: action.ok ? (action.text ?? null) : null };
+			return {
+				...state,
+				preview: action.ok ? (action.text ?? null) : null,
+				error: action.ok ? null : (action.error ?? null),
+			};
 		case "APPLYING":
 			return { ...state, applying: true };
 		case "APPLIED":
-			return { ...state, applying: false };
+			return { ...state, applying: false, error: action.error ?? null };
 		default:
 			return state;
 	}
@@ -250,6 +236,15 @@ body {
 	margin-bottom: 4px;
 }
 
+.error-note {
+	margin: 0 0 8px 0;
+	padding: 6px 10px;
+	border-radius: 3px;
+	color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+	background: var(--vscode-inputValidation-errorBackground);
+	border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
 .empty-note {
 	opacity: 0.6;
 	font-style: italic;
@@ -278,9 +273,9 @@ function App() {
 
 	// request preview whenever selection changes and is non-empty
 	useEffect(() => {
-		if (state.selected.length === 0) return;
-		vscodeApi.postMessage({ type: "requestPreview", indices: state.selected });
-	}, [state.selected]);
+		if (state.selected.length === 0 || !state.binding) return;
+		vscodeApi.postMessage({ type: "requestPreview", name: state.binding.name, overloadTexts: state.selected });
+	}, [state.selected, state.binding]);
 
 	// listen for messages from the extension
 	useEffect(() => {
@@ -291,8 +286,10 @@ function App() {
 			} else if (msg.type === "preview") {
 				dispatch({ type: "PREVIEW", ok: msg.ok, text: msg.text, error: msg.error });
 			} else if (msg.type === "applied") {
+				// On a stale apply the extension re-fetched overloads (an OVERLOADS
+				// message reconciles the selection); surface any genuine error.
 				applyingRef.current = false;
-				dispatch({ type: "APPLIED", ok: msg.ok, error: msg.error });
+				dispatch({ type: "APPLIED", error: msg.error });
 			}
 		}
 		window.addEventListener("message", handler);
@@ -301,15 +298,15 @@ function App() {
 		return () => window.removeEventListener("message", handler);
 	}, []);
 
-	function handleToggle(index: number) {
-		dispatch({ type: "TOGGLE", index });
+	function handleToggle(text: string) {
+		dispatch({ type: "TOGGLE", text });
 	}
 
 	function handleApply() {
-		if (state.selected.length === 0 || applyingRef.current) return;
+		if (state.selected.length === 0 || applyingRef.current || !state.binding) return;
 		applyingRef.current = true;
 		dispatch({ type: "APPLYING" });
-		vscodeApi.postMessage({ type: "apply", indices: state.selected });
+		vscodeApi.postMessage({ type: "apply", name: state.binding.name, overloadTexts: state.selected });
 	}
 
 	if (!state.found) {
@@ -321,13 +318,10 @@ function App() {
 		);
 	}
 
-	const selectedOverloads = state.selected
-		.map((i) => state.overloads.find((o) => o.index === i))
-		.filter(Boolean) as Overload[];
-
 	return (
 		<>
 			<style>{css}</style>
+			{state.error && <p class="error-note">{state.error}</p>}
 			{state.staleSelection && <p class="stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
 				<div>
@@ -335,25 +329,25 @@ function App() {
 						Overloads for <code>{state.binding?.name ?? ""}</code>
 					</p>
 					{state.overloads.length === 0 && <p class="empty-note">No overloads available.</p>}
-					{state.overloads.map((o) => (
-						<label key={o.index} class={`overload-box${state.selected.includes(o.index) ? " selected" : ""}`}>
+					{state.overloads.map((t, i) => (
+						<label key={i} class={`overload-box${state.selected.includes(t) ? " selected" : ""}`}>
 							<input
 								type="checkbox"
 								class="overload-checkbox"
-								checked={state.selected.includes(o.index)}
-								onChange={() => handleToggle(o.index)}
+								checked={state.selected.includes(t)}
+								onChange={() => handleToggle(t)}
 							/>
-							{o.text}
+							{t}
 						</label>
 					))}
 				</div>
 				<div class="merge-area">
 					<p class="column-title">Merge area</p>
 					<div class="merge-list">
-						{selectedOverloads.length === 0 && <p class="empty-note">Click overloads on the left to select them.</p>}
-						{selectedOverloads.map((o) => (
-							<div key={o.index} class="merge-item">
-								{o.text}
+						{state.selected.length === 0 && <p class="empty-note">Click overloads on the left to select them.</p>}
+						{state.selected.map((t, i) => (
+							<div key={i} class="merge-item">
+								{t}
 							</div>
 						))}
 					</div>
