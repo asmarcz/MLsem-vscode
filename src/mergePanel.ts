@@ -46,9 +46,20 @@ interface Instantiation {
 type WebviewToExtension =
 	| { type: "ready" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[] }
-	| { type: "apply"; name: string; overloadTexts: string[] }
+	// [append]: add the result as new declaration line(s) instead of replacing.
+	// [keepOthers]: on replace, keep the unselected overloads (scoped Apply)
+	// rather than dropping them (full Replace).
+	| { type: "apply"; name: string; overloadTexts: string[]; append: boolean; keepOthers: boolean }
 	| { type: "requestInstantiatePreview"; name: string; instantiations: Instantiation[] }
-	| { type: "applyInstantiate"; name: string; instantiations: Instantiation[] };
+	// [only]: restrict the written result to these overload texts (per-overload
+	// Insert writes a single one). Absent/undefined means all.
+	| {
+			type: "applyInstantiate";
+			name: string;
+			instantiations: Instantiation[];
+			append: boolean;
+			only?: string[];
+	  };
 
 let panel: vscode.WebviewPanel | undefined;
 let currentUri: vscode.Uri | undefined;
@@ -230,6 +241,8 @@ export function openTypeToolkit(
 				textDocument: { uri: uri.toString() },
 				name: message.name,
 				overloadTexts: message.overloadTexts,
+				append: message.append,
+				keepOthers: message.keepOthers,
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);
@@ -258,6 +271,8 @@ export function openTypeToolkit(
 				textDocument: { uri: uri.toString() },
 				name: message.name,
 				instantiations: message.instantiations,
+				append: message.append,
+				only: message.only,
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);

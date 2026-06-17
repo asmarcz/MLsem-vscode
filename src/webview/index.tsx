@@ -197,11 +197,20 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 		if (!state.applying) applyingRef.current = false;
 	}, [state.applying]);
 
-	function handleApply() {
+	// append=false,keepOthers=true → Apply (scoped: merged replaces the selected,
+	// the rest kept); append=false,keepOthers=false → Replace (full: merged only);
+	// append=true → Insert (merged appended, all existing kept).
+	function handleApply(append: boolean, keepOthers: boolean) {
 		if (state.selected.length === 0 || applyingRef.current || !state.binding) return;
 		applyingRef.current = true;
 		dispatch({ type: "APPLYING" });
-		vscodeApi.postMessage({ type: "apply", name: state.binding.name, overloadTexts: state.selected });
+		vscodeApi.postMessage({
+			type: "apply",
+			name: state.binding.name,
+			overloadTexts: state.selected,
+			append,
+			keepOthers,
+		});
 	}
 
 	return (
@@ -247,14 +256,35 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							</div>
 						)}
 					</div>
-					<button
-						class="apply-btn"
-						type="button"
-						disabled={state.selected.length === 0 || state.applying}
-						onClick={handleApply}
-					>
-						{state.applying ? "Applying…" : "Apply"}
-					</button>
+					<div class="btn-row">
+						<button
+							class="apply-btn"
+							type="button"
+							title="Replace the selected overloads with the merged type; keep the rest"
+							disabled={state.selected.length === 0 || state.applying}
+							onClick={() => handleApply(false, true)}
+						>
+							{state.applying ? "Applying…" : "Apply"}
+						</button>
+						<button
+							class="replace-btn"
+							type="button"
+							title="Replace ALL declarations with the merged type (drops the unselected overloads)"
+							disabled={state.selected.length === 0 || state.applying}
+							onClick={() => handleApply(false, false)}
+						>
+							Replace
+						</button>
+						<button
+							class="insert-btn"
+							type="button"
+							title="Add the merged type as a new declaration, keeping every existing one"
+							disabled={state.selected.length === 0 || state.applying}
+							onClick={() => handleApply(true, false)}
+						>
+							Insert
+						</button>
+					</div>
 				</div>
 			</div>
 		</section>
@@ -263,7 +293,8 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 
 function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const applyingRef = useRef(false);
-	const hasAssignments = buildInstantiations(state.assignments).length > 0;
+	const assignedTexts = buildInstantiations(state.assignments).map((i) => i.overload);
+	const hasAssignments = assignedTexts.length > 0;
 
 	// Debounced preview request whenever assignments change. When nothing is
 	// assigned, clear any stale preview instead of requesting one.
@@ -285,7 +316,11 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 		if (!state.instApplying) applyingRef.current = false;
 	}, [state.instApplying]);
 
-	function handleApply() {
+	// All assigned overloads. [only] selects which result overloads to write:
+	//  Apply (scoped) → only=undefined (keep unassigned overloads too);
+	//  Replace (full) → only=assignedTexts (drop unassigned);
+	//  Insert → append, only=assignedTexts (append just the instantiated ones).
+	function handleApply(append: boolean, only?: string[]) {
 		if (!hasAssignments || applyingRef.current || !state.binding) return;
 		applyingRef.current = true;
 		dispatch({ type: "INST_APPLYING" });
@@ -293,6 +328,30 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 			type: "applyInstantiate",
 			name: state.binding.name,
 			instantiations: buildInstantiations(state.assignments),
+			append,
+			only,
+		});
+	}
+
+	// One overload's instantiation. [only] picks the scope, mirroring the global
+	// buttons: Apply (scoped) keeps the other overloads, Replace/Insert act on
+	// just this one.
+	function handleRowApply(text: string, assigned: Record<string, string>, append: boolean, only?: string[]) {
+		if (applyingRef.current || !state.binding) return;
+		const instantiations = [
+			{
+				overload: text,
+				assignments: Object.entries(assigned).map(([variable, type]) => ({ var: variable, type })),
+			},
+		];
+		applyingRef.current = true;
+		dispatch({ type: "INST_APPLYING" });
+		vscodeApi.postMessage({
+			type: "applyInstantiate",
+			name: state.binding.name,
+			instantiations,
+			append,
+			only,
 		});
 	}
 
@@ -314,45 +373,81 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 				{state.overloads.map((text, i) => {
 					const vars = state.overloadVars[i] ?? [];
 					const assigned = state.assignments[text] ?? {};
+					const rowAssigned = Object.keys(assigned).length > 0;
 					return (
 						<div key={text} class="inst-overload">
-							<div class="inst-overload-text">{text}</div>
-							{vars.length === 0 ? (
-								<p class="empty-note">No type variables.</p>
-							) : (
-								<div class="var-row">
-									{vars.map((v) => (
-										<label key={v} class="var-field">
-											<span class="var-name">{v}</span>
-											<span class="var-input-wrap">
-												<input
-													class="var-combobox"
-													list={DATALIST_ID}
-													placeholder="type…"
-													value={assigned[v] ?? ""}
-													onInput={(e) =>
-														dispatch({
-															type: "SET_ASSIGNMENT",
-															overload: text,
-															variable: v,
-															value: (e.target as HTMLInputElement).value.trim(),
-														})
-													}
-												/>
-												{assigned[v] ? (
-													<button
-														type="button"
-														class="var-clear"
-														title="Clear"
-														aria-label={`Clear ${v}`}
-														onClick={() => dispatch({ type: "SET_ASSIGNMENT", overload: text, variable: v, value: "" })}
-													>
-														×
-													</button>
-												) : null}
-											</span>
-										</label>
-									))}
+							<div class="inst-overload-main">
+								<div class="inst-overload-text">{text}</div>
+								{vars.length === 0 ? (
+									<p class="empty-note">No type variables.</p>
+								) : (
+									<div class="var-row">
+										{vars.map((v) => (
+											<label key={v} class="var-field">
+												<span class="var-name">{v}</span>
+												<span class="var-input-wrap">
+													<input
+														class="var-combobox"
+														list={DATALIST_ID}
+														placeholder="type…"
+														value={assigned[v] ?? ""}
+														onInput={(e) =>
+															dispatch({
+																type: "SET_ASSIGNMENT",
+																overload: text,
+																variable: v,
+																value: (e.target as HTMLInputElement).value.trim(),
+															})
+														}
+													/>
+													{assigned[v] ? (
+														<button
+															type="button"
+															class="var-clear"
+															title="Clear"
+															aria-label={`Clear ${v}`}
+															onClick={() =>
+																dispatch({ type: "SET_ASSIGNMENT", overload: text, variable: v, value: "" })
+															}
+														>
+															×
+														</button>
+													) : null}
+												</span>
+											</label>
+										))}
+									</div>
+								)}
+							</div>
+							{vars.length > 0 && (
+								<div class="btn-row inst-row-btns">
+									<button
+										class="apply-btn"
+										type="button"
+										title="Replace the declarations, instantiating only this overload; keep the others"
+										disabled={!rowAssigned || state.instApplying}
+										onClick={() => handleRowApply(text, assigned, false, undefined)}
+									>
+										Apply
+									</button>
+									<button
+										class="replace-btn"
+										type="button"
+										title="Replace ALL declarations with only this instantiated overload (drops the others)"
+										disabled={!rowAssigned || state.instApplying}
+										onClick={() => handleRowApply(text, assigned, false, [text])}
+									>
+										Replace
+									</button>
+									<button
+										class="insert-btn"
+										type="button"
+										title="Add this overload's instantiated type as a new declaration, keeping every existing one"
+										disabled={!rowAssigned || state.instApplying}
+										onClick={() => handleRowApply(text, assigned, true, [text])}
+									>
+										Insert
+									</button>
 								</div>
 							)}
 						</div>
@@ -373,9 +468,35 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 						</div>
 					)}
 				</div>
-				<button class="apply-btn" type="button" disabled={!hasAssignments || state.instApplying} onClick={handleApply}>
-					{state.instApplying ? "Applying…" : "Apply"}
-				</button>
+				<div class="btn-row">
+					<button
+						class="apply-btn"
+						type="button"
+						title="Replace the declarations, instantiating the assigned overloads; keep the others"
+						disabled={!hasAssignments || state.instApplying}
+						onClick={() => handleApply(false, undefined)}
+					>
+						{state.instApplying ? "Applying…" : "Apply"}
+					</button>
+					<button
+						class="replace-btn"
+						type="button"
+						title="Replace ALL declarations with only the instantiated overloads (drops the rest)"
+						disabled={!hasAssignments || state.instApplying}
+						onClick={() => handleApply(false, assignedTexts)}
+					>
+						Replace
+					</button>
+					<button
+						class="insert-btn"
+						type="button"
+						title="Add the instantiated overloads as new declarations, keeping every existing one"
+						disabled={!hasAssignments || state.instApplying}
+						onClick={() => handleApply(true, assignedTexts)}
+					>
+						Insert
+					</button>
+				</div>
 			</div>
 		</section>
 	);

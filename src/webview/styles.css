@@ -134,10 +134,21 @@ body {
 }
 
 .inst-overload {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
 	border: 1px solid var(--tk-border);
 	border-radius: 3px;
 	background: var(--vscode-editor-background);
 	padding: 8px 10px;
+}
+
+/* Left column: the overload signature and its variable inputs; takes the
+   remaining width so a long signature wraps instead of shoving the buttons
+   off the card. */
+.inst-overload-main {
+	flex: 1;
+	min-width: 0;
 }
 
 .inst-overload-text {
@@ -241,12 +252,13 @@ body {
 	padding: 6px 14px;
 	background: var(--vscode-button-background);
 	color: var(--vscode-button-foreground);
-	border: none;
+	/* Transparent 1px border so the box model matches [.insert-btn]'s 1px
+	   border — otherwise Apply's text sits 1px higher and the baselines drift. */
+	border: 1px solid transparent;
 	border-radius: 3px;
 	cursor: pointer;
 	font-family: var(--vscode-font-family);
 	font-size: var(--vscode-font-size);
-	align-self: flex-start;
 }
 
 .apply-btn:hover:not(:disabled) {
@@ -254,6 +266,44 @@ body {
 }
 
 .apply-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.btn-row {
+	display: flex;
+	gap: 8px;
+	align-self: flex-start;
+}
+
+/* Per-overload action buttons sit to the right of the overload, top-aligned
+   with its signature, and never shrink. */
+.inst-row-btns {
+	flex-shrink: 0;
+}
+
+/* Replace and Insert are the secondary actions — same shape as Apply but the
+   muted secondary button palette so Apply stays the visual default. */
+.insert-btn,
+.replace-btn {
+	display: inline-block;
+	padding: 6px 14px;
+	background: var(--vscode-button-secondaryBackground, transparent);
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	border: 1px solid var(--tk-border-strong, var(--vscode-button-border, transparent));
+	border-radius: 3px;
+	cursor: pointer;
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+}
+
+.insert-btn:hover:not(:disabled),
+.replace-btn:hover:not(:disabled) {
+	background: var(--vscode-button-secondaryHoverBackground, var(--tk-border-soft));
+}
+
+.insert-btn:disabled,
+.replace-btn:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
 }
