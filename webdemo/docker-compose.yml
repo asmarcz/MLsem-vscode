@@ -1,0 +1,35 @@
+services:
+  broker:
+    build:
+      context: ./broker
+    container_name: vscode-demo-broker
+    restart: unless-stopped
+    ports:
+      - "${BROKER_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      SESSION_TTL_SECONDS: "${SESSION_TTL_SECONDS:-7200}"
+      SESSION_IMAGE: "${SESSION_IMAGE:-vscode-demo-code-server:latest}"
+      SESSION_NETWORK: "vscode-demo-net"
+      SESSION_CONTAINER_PREFIX: "vscode-demo-session"
+      CODE_SERVER_PORT: "8080"
+    volumes:
+      # Host socket path is configurable so this works on both Docker
+      # (/var/run/docker.sock) and rootless Podman
+      # (/run/user/<uid>/podman/podman.sock). Inside the container the app
+      # always talks to /var/run/docker.sock.
+      - "${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
+    networks:
+      - demo
+
+  code-server-image:
+    build:
+      context: .
+      dockerfile: ./code-server/Dockerfile
+    image: vscode-demo-code-server:latest
+    profiles:
+      - build-only
+
+networks:
+  demo:
+    name: vscode-demo-net
