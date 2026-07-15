@@ -1,15 +1,36 @@
 services:
+  # Builds the per-session code-server image. This is NOT a long-running
+  # service: the broker creates one session container from this image per user
+  # (out-of-band, via the container-runtime socket), so all we need is for the
+  # image to exist. `compose up` builds it during the build phase, then runs
+  # this one-shot container whose entrypoint is a no-op (`true`) so it just
+  # exits. The image is tagged with an explicit `localhost/` registry so the
+  # name matches on Podman (which fully-qualifies short names) and Docker alike,
+  # and so the broker's SESSION_IMAGE resolves to the same local image.
+  code-server-image:
+    build:
+      # webdemo dir: holds the demo assets and the extension .vsix copy.
+      context: .
+      dockerfile: ./code-server/Dockerfile
+    image: localhost/vscode-demo-code-server:latest
+    entrypoint: ["true"]
+    restart: "no"
+
   broker:
     build:
       context: ./broker
     container_name: vscode-demo-broker
     restart: unless-stopped
+    # Ensure the session image is built/tagged before the broker starts.
+    depends_on:
+      code-server-image:
+        condition: service_completed_successfully
     ports:
       - "${BROKER_PORT:-8080}:8080"
     environment:
       PORT: "8080"
       SESSION_TTL_SECONDS: "${SESSION_TTL_SECONDS:-7200}"
-      SESSION_IMAGE: "${SESSION_IMAGE:-vscode-demo-code-server:latest}"
+      SESSION_IMAGE: "${SESSION_IMAGE:-localhost/vscode-demo-code-server:latest}"
       SESSION_NETWORK: "vscode-demo-net"
       SESSION_CONTAINER_PREFIX: "vscode-demo-session"
       CODE_SERVER_PORT: "8080"
@@ -21,14 +42,6 @@ services:
       - "${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
     networks:
       - demo
-
-  code-server-image:
-    build:
-      context: .
-      dockerfile: ./code-server/Dockerfile
-    image: vscode-demo-code-server:latest
-    profiles:
-      - build-only
 
 networks:
   demo:

@@ -1,0 +1,10 @@
+# Keep the repo-root build context (webdemo code-server image) lean.
+# Only the committed .vsix and webdemo/{demo-project,code-server} are needed.
+.git
+**/node_modules
+dist
+**/*.map
+.serena
+.claude
+webdemo/.env
+webdemo/broker

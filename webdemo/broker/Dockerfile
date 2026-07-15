@@ -2,7 +2,7 @@
 # pick up security patches automatically; its residual CVEs are unfixable Debian
 # perl/ncurses bugs that a `npm ci && tsc` build never invokes and that are
 # discarded — none reach the runtime image below.
-FROM node:22-trixie-slim AS deps
+FROM docker.io/node:22-trixie-slim AS deps
 
 WORKDIR /app
 # `npm ci` installs the exact, integrity-checked versions from the committed
@@ -11,7 +11,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:22-trixie-slim AS build
+FROM docker.io/node:22-trixie-slim AS build
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
@@ -21,7 +21,7 @@ RUN npm run build
 
 # Production-only dependencies, with all package install scripts disabled so no
 # dependency's lifecycle hook can execute arbitrary code during the build.
-FROM node:22-trixie-slim AS prod-deps
+FROM docker.io/node:22-trixie-slim AS prod-deps
 
 WORKDIR /app
 COPY package.json package-lock.json ./

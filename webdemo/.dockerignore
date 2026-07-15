@@ -1,0 +1,5 @@
+# Keep the code-server image build context (the webdemo dir) lean.
+# Only demo-project/, code-server/, and the .vsix are needed.
+.env
+broker
+**/node_modules

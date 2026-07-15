@@ -1,0 +1,26 @@
+type falsy = 0 | false | ()
+type truthy = ~falsy
+
+(* Infer this type signature using the Quick Fix... tool.
+	val logical_or : 'a & truthy -> any -> 'a & truthy
+	val logical_or : 'a & falsy -> 'b -> 'b
+	val logical_or : truthy -> any -> truthy *)
+let logical_or x y =
+  if x is truthy
+    then x
+    else y
+
+let logical_or_2 a b =
+  if a then true else b
+
+let logical_or_3 a b =
+  match a with
+  | true -> true
+  | false -> b
+  end
+
+let logical_or_4 a b =
+  if a then
+    true
+  else
+    (if b then true else false)

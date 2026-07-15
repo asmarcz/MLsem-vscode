@@ -1,8 +1,9 @@
 # MLsem demo workspace
 
-This is the template project copied into each ephemeral code-server session.
+Welcome to the MLsem demo workspace.
 
-It will later be replaced by a devcontainer setup that ships the MLsem VS Code
-extension and its LSP server pre-installed. For now it is a placeholder so the
-demo platform (broker + per-session code-server containers) can be built and run
-end to end.
+1. Start by opening the `logical_or.mlsem` file.
+2. Place your cursor at the `let logical_or` declaration
+3. Use the "Quick Fix..." command by opening the Command Palette (`Ctrl+Shift+P`)
+	or by using the `Ctrl+.` shortcut.
+4. Inline the inferred type or open the Type toolkit.
