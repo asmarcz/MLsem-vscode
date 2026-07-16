@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Ephemeral: start every container from a clean copy of the template project.
 rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true
-rsync -a /template-project/ /workspace/
+cp -a /template-project/. /workspace/
 
 # NOTE: code-server has no `--base-path` flag. It supports being served under a
 # sub-path (here `/s/<uuid>/`) natively, as long as the reverse proxy preserves

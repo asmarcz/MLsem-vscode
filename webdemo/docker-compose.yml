@@ -26,9 +26,14 @@ services:
       code-server-image:
         condition: service_completed_successfully
     ports:
-      - "${BROKER_PORT:-8080}:8080"
+      # Published on loopback only: the host-level Caddy reverse proxy is the
+      # public entry point and reaches the broker at 127.0.0.1:${BROKER_PORT}.
+      - "127.0.0.1:${BROKER_PORT:-8080}:8080"
     environment:
       PORT: "8080"
+      # URL path prefix the broker serves under; the host Caddy config forwards
+      # this prefix (preserved) to the broker.
+      BASE_PATH: "${BASE_PATH:-/webdemo}"
       SESSION_TTL_SECONDS: "${SESSION_TTL_SECONDS:-7200}"
       SESSION_IMAGE: "${SESSION_IMAGE:-localhost/vscode-demo-code-server:latest}"
       SESSION_NETWORK: "vscode-demo-net"

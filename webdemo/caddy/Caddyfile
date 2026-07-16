@@ -1,0 +1,22 @@
+# Host-level Caddy config for the demo. Copy (or symlink) this to
+# /etc/caddy/Caddyfile and `systemctl reload caddy`.
+#
+# Serves everything under BASE_PATH (default /webdemo) on port 80 and forwards
+# to the broker WITHOUT stripping the prefix: the broker is BASE_PATH-aware and
+# code-server derives its asset URLs from the preserved request path, so the
+# prefix must reach the broker intact.
+#
+# The broker is published on loopback by docker-compose (127.0.0.1:8080), so
+# Caddy runs on the same host and dials it there. reverse_proxy preserves the
+# incoming Host header by default (code-server's anti-CSRF check needs Host to
+# match the browser Origin) and upgrades WebSocket connections transparently.
+:80 {
+	@app path {$BASE_PATH:/webdemo} {$BASE_PATH:/webdemo}/*
+	handle @app {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+}

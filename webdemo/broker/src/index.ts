@@ -12,6 +12,19 @@ const SESSION_NETWORK = process.env.SESSION_NETWORK ?? "vscode-demo-net";
 const SESSION_CONTAINER_PREFIX = process.env.SESSION_CONTAINER_PREFIX ?? "vscode-demo-session";
 const CODE_SERVER_PORT = Number(process.env.CODE_SERVER_PORT ?? "8080");
 
+// URL path prefix the broker is served under (e.g. "/webdemo"), configurable
+// per deployment. The upstream reverse proxy must PRESERVE this prefix (forward
+// it as-is, not strip it).
+const BASE_PATH = normalizeBasePath(process.env.BASE_PATH ?? "/webdemo");
+
+function normalizeBasePath(raw: string): string {
+	return `/${raw.trim().replace(/^\/+|\/+$/g, "")}`;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const app = express();
 
@@ -149,7 +162,8 @@ function renderLoadingPage(sessionId: string): string {
   </div>
   <script>
     const sessionId = ${JSON.stringify(sessionId)};
-    const target = "/s/" + sessionId + "/";
+    const basePath = ${JSON.stringify(BASE_PATH)};
+    const target = basePath + "/s/" + sessionId + "/";
     const deadline = Date.now() + 90000;
 
     async function poll() {
@@ -158,11 +172,11 @@ function renderLoadingPage(sessionId: string): string {
         document.getElementById("title").textContent = "Taking longer than expected";
         const status = document.getElementById("status");
         status.className = "error";
-        status.innerHTML = 'Your workspace did not become ready in time. <a href="/">Try again</a>.';
+        status.innerHTML = 'Your workspace did not become ready in time. <a href="' + basePath + '/">Try again</a>.';
         return;
       }
       try {
-        const res = await fetch("/api/ready/" + sessionId, { cache: "no-store" });
+        const res = await fetch(basePath + "/api/ready/" + sessionId, { cache: "no-store" });
         const data = await res.json();
         if (data.ready) {
           window.location.replace(target);
@@ -177,11 +191,15 @@ function renderLoadingPage(sessionId: string): string {
 </html>`;
 }
 
-app.get("/health", (_req, res) => {
+// All routes live on a router mounted at BASE_PATH, so the whole broker can be
+// served under a sub-path (e.g. /webdemo) with the prefix stripped uniformly.
+const router = express.Router();
+
+router.get("/health", (_req, res) => {
 	res.json({ ok: true });
 });
 
-app.get("/", async (_req, res, next) => {
+router.get("/", async (_req, res, next) => {
 	try {
 		const sessionId = randomUUID();
 
@@ -196,7 +214,7 @@ app.get("/", async (_req, res, next) => {
 	}
 });
 
-app.get("/api/ready/:sessionId", async (req, res) => {
+router.get("/api/ready/:sessionId", async (req, res) => {
 	const sessionId = req.params.sessionId;
 
 	if (!isUuid(sessionId)) {
@@ -209,7 +227,7 @@ app.get("/api/ready/:sessionId", async (req, res) => {
 	res.json({ ready });
 });
 
-app.use("/s/:sessionId", async (req, res, next) => {
+router.use("/s/:sessionId", async (req, res, next) => {
 	const sessionId = req.params.sessionId;
 
 	if (!isUuid(sessionId)) {
@@ -235,6 +253,10 @@ app.use("/s/:sessionId", async (req, res, next) => {
 		next(error);
 	}
 });
+
+// Mounting at BASE_PATH strips the prefix from req.url, so downstream handlers
+// and the code-server proxy see paths without the deployment prefix.
+app.use(BASE_PATH, router);
 
 proxy.on("error", (error, _req, res) => {
 	console.error("Proxy error:", error);
@@ -300,7 +322,7 @@ const server = http.createServer(app);
 server.on("upgrade", async (req, socket, head) => {
 	try {
 		const url = new URL(req.url ?? "", `http://${req.headers.host}`);
-		const match = url.pathname.match(/^\/s\/([^/]+)/);
+		const match = url.pathname.match(new RegExp(`^${escapeRegExp(BASE_PATH)}/s/([^/]+)`));
 
 		if (!match) {
 			socket.destroy();
@@ -321,6 +343,12 @@ server.on("upgrade", async (req, socket, head) => {
 			return;
 		}
 
+		// Strip BASE_PATH so code-server receives the same WS path it would
+		// without a prefix (the HTTP router mount strips it equivalently).
+		if (req.url) {
+			req.url = req.url.slice(BASE_PATH.length) || "/";
+		}
+
 		proxy.ws(req, socket, head, {
 			target: getTarget(sessionId),
 		});
@@ -331,5 +359,5 @@ server.on("upgrade", async (req, socket, head) => {
 });
 
 server.listen(PORT, () => {
-	console.log(`Broker listening on port ${PORT}`);
+	console.log(`Broker listening on port ${PORT} (base path ${BASE_PATH})`);
 });
