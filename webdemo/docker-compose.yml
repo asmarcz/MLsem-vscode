@@ -35,6 +35,7 @@ services:
       # this prefix (preserved) to the broker.
       BASE_PATH: "${BASE_PATH:-/webdemo}"
       SESSION_TTL_SECONDS: "${SESSION_TTL_SECONDS:-7200}"
+      WARMUP_DELAY_SECONDS: "${WARMUP_DELAY_SECONDS:-10}"
       SESSION_IMAGE: "${SESSION_IMAGE:-localhost/vscode-demo-code-server:latest}"
       SESSION_NETWORK: "vscode-demo-net"
       SESSION_CONTAINER_PREFIX: "vscode-demo-session"

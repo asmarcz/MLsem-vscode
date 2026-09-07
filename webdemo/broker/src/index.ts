@@ -11,6 +11,10 @@ const SESSION_IMAGE = process.env.SESSION_IMAGE ?? "vscode-demo-code-server:late
 const SESSION_NETWORK = process.env.SESSION_NETWORK ?? "vscode-demo-net";
 const SESSION_CONTAINER_PREFIX = process.env.SESSION_CONTAINER_PREFIX ?? "vscode-demo-session";
 const CODE_SERVER_PORT = Number(process.env.CODE_SERVER_PORT ?? "8080");
+// Delay before warming the next pooled container after one is handed out. The
+// gap keeps the CPU-heavy container start off the just-assigned session's back
+// while its workbench boots.
+const WARMUP_DELAY_MS = Number(process.env.WARMUP_DELAY_SECONDS ?? "10") * 1000;
 
 // URL path prefix the broker is served under (e.g. "/webdemo"), configurable
 // per deployment. The upstream reverse proxy must PRESERVE this prefix (forward
@@ -81,6 +85,44 @@ async function createSessionContainer(sessionId: string): Promise<void> {
 	});
 
 	await container.start();
+}
+
+// A single pre-warmed session container waiting to be handed out. It is NOT
+// subject to the session TTL — an unassigned container has no user, so the
+// reaper skips it (see cleanupExpiredSessions). It waits in the pool until a
+// request claims it, however long that takes.
+let warmSessionId: string | null = null;
+let warmupTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Session expiry is stamped at ASSIGNMENT time (not creation), so a user always
+// gets the full TTL even if the container they were handed had been warming in
+// the pool for a while. The creation-time expires-at label is kept only as a
+// fallback for reaping orphans left by a broker restart (memory is lost then).
+const sessionExpiry = new Map<string, number>();
+
+async function warmUpSession(): Promise<string> {
+	const sessionId = randomUUID();
+	await createSessionContainer(sessionId);
+	return sessionId;
+}
+
+// Warm the next container, but only after WARMUP_DELAY_MS and only if one is
+// not already warm or being warmed. No-op if a timer is already pending.
+function scheduleWarmup(): void {
+	if (warmupTimer || warmSessionId) {
+		return;
+	}
+	warmupTimer = setTimeout(() => {
+		warmupTimer = null;
+		warmUpSession()
+			.then((sessionId) => {
+				warmSessionId = sessionId;
+			})
+			.catch((error) => {
+				// Leave the pool empty; the next request cold-creates and reschedules.
+				console.error("Warm-up failed:", error);
+			});
+	}, WARMUP_DELAY_MS);
 }
 
 async function sessionExists(sessionId: string): Promise<boolean> {
@@ -201,9 +243,27 @@ router.get("/health", (_req, res) => {
 
 router.get("/", async (_req, res, next) => {
 	try {
-		const sessionId = randomUUID();
+		// Claim the pre-warmed container synchronously (before any await) so two
+		// concurrent requests can't grab the same one.
+		let sessionId = warmSessionId;
+		warmSessionId = null;
 
-		await createSessionContainer(sessionId);
+		// Edge cases with no warm container ready: the very first request, warm-up
+		// still pending, warm-up failed, or the idle warm container was reaped. In
+		// all of them, fall back to creating one on the spot.
+		if (!sessionId || !(await sessionExists(sessionId))) {
+			sessionId = randomUUID();
+			await createSessionContainer(sessionId);
+		}
+
+		// Start the TTL clock now, at assignment — not when the container was
+		// created (it may have been warming in the pool for a while).
+		sessionExpiry.set(sessionId, Date.now() + SESSION_TTL_SECONDS * 1000);
+
+		// Refill the pool, but only after a delay so the new container's start
+		// does not compete for CPU with the session just handed out (it is booting
+		// its workbench right now).
+		scheduleWarmup();
 
 		// Serve a loading page instead of redirecting immediately: the container is
 		// running but code-server needs a moment to start listening. The page polls
@@ -289,13 +349,27 @@ async function cleanupExpiredSessions(): Promise<void> {
 	const now = Date.now();
 
 	for (const summary of containers) {
-		const expiresAt = summary.Labels?.["vscode-demo.expires-at"];
+		const sessionId = summary.Labels?.["vscode-demo.session-id"];
 
-		if (!expiresAt) {
+		// Never reap the pre-warmed container: it has no user and no running TTL.
+		if (sessionId && sessionId === warmSessionId) {
 			continue;
 		}
 
-		const expiresAtTime = Date.parse(expiresAt);
+		// Expiry from memory (stamped at assignment) is authoritative. Fall back
+		// to the creation-time label only for containers this broker doesn't know
+		// about — e.g. sessions left running across a broker restart.
+		const memoryExpiry = sessionId ? sessionExpiry.get(sessionId) : undefined;
+		let expiresAtTime: number;
+		if (memoryExpiry !== undefined) {
+			expiresAtTime = memoryExpiry;
+		} else {
+			const label = summary.Labels?.["vscode-demo.expires-at"];
+			if (!label) {
+				continue;
+			}
+			expiresAtTime = Date.parse(label);
+		}
 
 		if (Number.isNaN(expiresAtTime) || expiresAtTime > now) {
 			continue;
@@ -304,6 +378,9 @@ async function cleanupExpiredSessions(): Promise<void> {
 		try {
 			const container = docker.getContainer(summary.Id);
 			await container.remove({ force: true });
+			if (sessionId) {
+				sessionExpiry.delete(sessionId);
+			}
 			console.log(`Removed expired session container ${summary.Id}`);
 		} catch (error) {
 			console.error(`Failed to remove expired container ${summary.Id}`, error);
@@ -360,4 +437,14 @@ server.on("upgrade", async (req, socket, head) => {
 
 server.listen(PORT, () => {
 	console.log(`Broker listening on port ${PORT} (base path ${BASE_PATH})`);
+
+	// Pre-warm one container at startup so the first request is served warm.
+	warmUpSession()
+		.then((sessionId) => {
+			warmSessionId = sessionId;
+			console.log(`Pre-warmed session ${sessionId}`);
+		})
+		.catch((error) => {
+			console.error("Initial warm-up failed:", error);
+		});
 });
