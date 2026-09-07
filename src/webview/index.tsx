@@ -215,8 +215,27 @@ function buildInstantiations(assignments: Assignments) {
 
 const DATALIST_ID = "mlsem-concrete-types";
 
+// Synchronous re-entrancy guard for the apply buttons. The [applying] flag only
+// flips once the reducer has run, so two clicks in the same tick would both get
+// through on it alone; the ref latches immediately. Returns a claim function:
+// true when the caller took the slot, false when an apply is already in flight.
+function useApplyGuard(applying: boolean): () => boolean {
+	const inFlight = useRef(false);
+
+	// Release the slot once the extension has replied.
+	useEffect(() => {
+		if (!applying) inFlight.current = false;
+	}, [applying]);
+
+	return () => {
+		if (inFlight.current) return false;
+		inFlight.current = true;
+		return true;
+	};
+}
+
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const applyingRef = useRef(false);
+	const claimApply = useApplyGuard(state.applying);
 
 	// Request a merge preview whenever the selection changes and is non-empty.
 	useEffect(() => {
@@ -224,17 +243,11 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 		vscodeApi.postMessage({ type: "requestPreview", name: state.binding.name, overloadTexts: state.selected });
 	}, [state.selected, state.binding]);
 
-	// Clear the synchronous guard once the extension replies.
-	useEffect(() => {
-		if (!state.applying) applyingRef.current = false;
-	}, [state.applying]);
-
 	// append=false,keepOthers=true → Apply (scoped: merged replaces the selected,
 	// the rest kept); append=false,keepOthers=false → Replace (full: merged only);
 	// append=true → Insert (merged appended, all existing kept).
 	function handleApply(append: boolean, keepOthers: boolean) {
-		if (state.selected.length === 0 || applyingRef.current || !state.binding) return;
-		applyingRef.current = true;
+		if (state.selected.length === 0 || !state.binding || !claimApply()) return;
 		dispatch({ type: "APPLYING" });
 		vscodeApi.postMessage({
 			type: "apply",
@@ -324,7 +337,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 }
 
 function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const applyingRef = useRef(false);
+	const claimApply = useApplyGuard(state.instApplying);
 	const assignedTexts = buildInstantiations(state.assignments).map((i) => i.overload);
 	const hasAssignments = assignedTexts.length > 0;
 
@@ -344,17 +357,12 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 		return () => clearTimeout(timer);
 	}, [state.assignments, state.binding, dispatch]);
 
-	useEffect(() => {
-		if (!state.instApplying) applyingRef.current = false;
-	}, [state.instApplying]);
-
 	// All assigned overloads. [only] selects which result overloads to write:
 	//  Apply (scoped) → only=undefined (keep unassigned overloads too);
 	//  Replace (full) → only=assignedTexts (drop unassigned);
 	//  Insert → append, only=assignedTexts (append just the instantiated ones).
 	function handleApply(append: boolean, only?: string[]) {
-		if (!hasAssignments || applyingRef.current || !state.binding) return;
-		applyingRef.current = true;
+		if (!hasAssignments || !state.binding || !claimApply()) return;
 		dispatch({ type: "INST_APPLYING" });
 		vscodeApi.postMessage({
 			type: "applyInstantiate",
@@ -369,14 +377,13 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	// buttons: Apply (scoped) keeps the other overloads, Replace/Insert act on
 	// just this one.
 	function handleRowApply(text: string, assigned: Record<string, string>, append: boolean, only?: string[]) {
-		if (applyingRef.current || !state.binding) return;
+		if (!state.binding || !claimApply()) return;
 		const instantiations = [
 			{
 				overload: text,
 				assignments: Object.entries(assigned).map(([variable, type]) => ({ var: variable, type })),
 			},
 		];
-		applyingRef.current = true;
 		dispatch({ type: "INST_APPLYING" });
 		vscodeApi.postMessage({
 			type: "applyInstantiate",
