@@ -458,8 +458,10 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 				<div>
 					{state.instPreview && state.instPreview.length > 0 ? (
 						<div class="preview-block preview-lines">
-							{state.instPreview.map((line) => (
-								<div key={line}>{line}</div>
+							{/* Keyed by position: two overloads can instantiate to the same
+						    signature, so the text is not a unique identity here. */}
+							{state.instPreview.map((line, i) => (
+								<div key={i}>{line}</div>
 							))}
 						</div>
 					) : (
