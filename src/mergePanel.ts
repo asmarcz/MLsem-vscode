@@ -115,8 +115,10 @@ function postOverloads(result: OverloadsResult): void {
 		type: "overloads",
 		found: result.found,
 		binding: { name: result.name, declared: result.declared },
-		overloads: result.overloads,
-		overloadVars: result.overloadVars,
+		// The server sends signatures and their free type variables as two
+		// parallel arrays; zip them here so the webview never has to keep an
+		// index alignment in sync with a list it otherwise addresses by text.
+		overloads: result.overloads.map((text, i) => ({ text, vars: result.overloadVars[i] ?? [] })),
 		concreteTypes: result.concreteTypes,
 	});
 }

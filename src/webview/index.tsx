@@ -20,16 +20,19 @@ interface Binding {
 // across keys.
 type Assignments = Record<string, Record<string, string>>;
 
+interface Overload {
+	// The rendered signature. This is the overload's identity everywhere — the
+	// same one the server matches on — so selections and assignments survive
+	// edits and never refer to a stale index.
+	text: string;
+	// Free type-variable names of this overload.
+	vars: string[];
+}
+
 interface AppState {
 	found: boolean;
 	binding: Binding | null;
-	// Overloads are identified by their rendered text — the same identity the
-	// server matches on — so selections/assignments survive edits and never
-	// refer to a stale index.
-	overloads: string[];
-	// Free type-variable names of each overload, aligned by index with
-	// [overloads].
-	overloadVars: string[][];
+	overloads: Overload[];
 	// Concrete-type suggestions for the instantiate comboboxes.
 	concreteTypes: string[];
 	// --- Merge tool ---
@@ -51,8 +54,7 @@ type ExtensionMessage =
 			type: "overloads";
 			found: boolean;
 			binding: Binding;
-			overloads: string[];
-			overloadVars: string[][];
+			overloads: Overload[];
 			concreteTypes: string[];
 	  }
 	| { type: "preview"; ok: boolean; text?: string; error?: string }
@@ -71,7 +73,6 @@ const initialState: AppState = {
 	found: false,
 	binding: null,
 	overloads: [],
-	overloadVars: [],
 	concreteTypes: [],
 	selected: [],
 	preview: null,
@@ -87,11 +88,11 @@ const initialState: AppState = {
 
 // Drop assignment entries for overloads that no longer exist; report whether
 // anything was dropped (so the instantiate tool can show a "types changed" note).
-function reconcileAssignments(prev: Assignments, overloads: string[]): { kept: Assignments; dropped: boolean } {
+function reconcileAssignments(prev: Assignments, texts: Set<string>): { kept: Assignments; dropped: boolean } {
 	const kept: Assignments = {};
 	let dropped = false;
 	for (const [text, vars] of Object.entries(prev)) {
-		if (overloads.includes(text)) kept[text] = vars;
+		if (texts.has(text)) kept[text] = vars;
 		else dropped = true;
 	}
 	return { kept, dropped };
@@ -108,18 +109,18 @@ function reducer(state: AppState, action: Action): AppState {
 				};
 			}
 			const sameBinding = state.found && state.binding?.name === action.binding?.name;
+			const texts = new Set(action.overloads.map((o) => o.text));
 			// Merge: keep selections whose overload text still exists.
-			const kept = sameBinding ? state.selected.filter((t) => action.overloads.includes(t)) : [];
+			const kept = sameBinding ? state.selected.filter((t) => texts.has(t)) : [];
 			// Instantiate: keep assignments for overloads that still exist.
 			const { kept: assignments, dropped } = sameBinding
-				? reconcileAssignments(state.assignments, action.overloads)
+				? reconcileAssignments(state.assignments, texts)
 				: { kept: {}, dropped: false };
 			return {
 				...state,
 				found: true,
 				binding: action.binding,
 				overloads: action.overloads,
-				overloadVars: action.overloadVars,
 				concreteTypes: action.concreteTypes,
 				selected: kept,
 				preview: null,
@@ -225,15 +226,15 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 						Overloads for <code>{state.binding?.name ?? ""}</code>
 					</p>
 					{state.overloads.length === 0 && <p class="empty-note">No overloads available.</p>}
-					{state.overloads.map((t) => (
-						<label key={t} class={`overload-box${state.selected.includes(t) ? " selected" : ""}`}>
+					{state.overloads.map(({ text }) => (
+						<label key={text} class={`overload-box${state.selected.includes(text) ? " selected" : ""}`}>
 							<input
 								type="checkbox"
 								class="overload-checkbox"
-								checked={state.selected.includes(t)}
-								onChange={() => dispatch({ type: "TOGGLE", text: t })}
+								checked={state.selected.includes(text)}
+								onChange={() => dispatch({ type: "TOGGLE", text })}
 							/>
-							{t}
+							{text}
 						</label>
 					))}
 				</div>
@@ -370,8 +371,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 			</datalist>
 			<div class="inst-list">
 				{state.overloads.length === 0 && <p class="empty-note">No overloads available.</p>}
-				{state.overloads.map((text, i) => {
-					const vars = state.overloadVars[i] ?? [];
+				{state.overloads.map(({ text, vars }) => {
 					const assigned = state.assignments[text] ?? {};
 					const rowAssigned = Object.keys(assigned).length > 0;
 					return (
