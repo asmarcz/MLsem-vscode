@@ -241,6 +241,38 @@ function useApplyGuard(applying: boolean): () => boolean {
 	};
 }
 
+// The Apply / Replace / Insert triple. Both tools offer the same three scopes —
+// keep the others, drop the others, or add alongside — so the row is one
+// component and only the tooltips and handlers differ.
+interface ActionRowProps {
+	titles: { apply: string; replace: string; insert: string };
+	onApply: () => void;
+	onReplace: () => void;
+	onInsert: () => void;
+	disabled: boolean;
+	// Swap Apply's label for "Applying…" while an edit is in flight. The
+	// per-overload rows leave this off: one row of many changing its label reads
+	// as noise when the whole card is already disabled.
+	busy?: boolean;
+	class?: string;
+}
+
+function ActionRow({ titles, onApply, onReplace, onInsert, disabled, busy, class: extraClass }: ActionRowProps) {
+	return (
+		<div class={extraClass ? `btn-row ${extraClass}` : "btn-row"}>
+			<button class="apply-btn" type="button" title={titles.apply} disabled={disabled} onClick={onApply}>
+				{busy ? "Applying…" : "Apply"}
+			</button>
+			<button class="replace-btn" type="button" title={titles.replace} disabled={disabled} onClick={onReplace}>
+				Replace
+			</button>
+			<button class="insert-btn" type="button" title={titles.insert} disabled={disabled} onClick={onInsert}>
+				Insert
+			</button>
+		</div>
+	);
+}
+
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const claimApply = useApplyGuard(state.applying);
 
@@ -308,35 +340,18 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							</div>
 						)}
 					</div>
-					<div class="btn-row">
-						<button
-							class="apply-btn"
-							type="button"
-							title="Replace the selected overloads with the merged type; keep the rest"
-							disabled={state.selected.length === 0 || state.applying}
-							onClick={() => handleApply(false, true)}
-						>
-							{state.applying ? "Applying…" : "Apply"}
-						</button>
-						<button
-							class="replace-btn"
-							type="button"
-							title="Replace ALL declarations with the merged type (drops the unselected overloads)"
-							disabled={state.selected.length === 0 || state.applying}
-							onClick={() => handleApply(false, false)}
-						>
-							Replace
-						</button>
-						<button
-							class="insert-btn"
-							type="button"
-							title="Add the merged type as a new declaration, keeping every existing one"
-							disabled={state.selected.length === 0 || state.applying}
-							onClick={() => handleApply(true, false)}
-						>
-							Insert
-						</button>
-					</div>
+					<ActionRow
+						titles={{
+							apply: "Replace the selected overloads with the merged type; keep the rest",
+							replace: "Replace ALL declarations with the merged type (drops the unselected overloads)",
+							insert: "Add the merged type as a new declaration, keeping every existing one",
+						}}
+						disabled={state.selected.length === 0 || state.applying}
+						busy={state.applying}
+						onApply={() => handleApply(false, true)}
+						onReplace={() => handleApply(false, false)}
+						onInsert={() => handleApply(true, false)}
+					/>
 				</div>
 			</div>
 		</section>
@@ -456,35 +471,18 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 								)}
 							</div>
 							{vars.length > 0 && (
-								<div class="btn-row inst-row-btns">
-									<button
-										class="apply-btn"
-										type="button"
-										title="Replace the declarations, instantiating only this overload; keep the others"
-										disabled={!rowAssigned || state.instApplying}
-										onClick={() => handleRowApply(text, assigned, false, undefined)}
-									>
-										Apply
-									</button>
-									<button
-										class="replace-btn"
-										type="button"
-										title="Replace ALL declarations with only this instantiated overload (drops the others)"
-										disabled={!rowAssigned || state.instApplying}
-										onClick={() => handleRowApply(text, assigned, false, [text])}
-									>
-										Replace
-									</button>
-									<button
-										class="insert-btn"
-										type="button"
-										title="Add this overload's instantiated type as a new declaration, keeping every existing one"
-										disabled={!rowAssigned || state.instApplying}
-										onClick={() => handleRowApply(text, assigned, true, [text])}
-									>
-										Insert
-									</button>
-								</div>
+								<ActionRow
+									class="inst-row-btns"
+									titles={{
+										apply: "Replace the declarations, instantiating only this overload; keep the others",
+										replace: "Replace ALL declarations with only this instantiated overload (drops the others)",
+										insert: "Add this overload's instantiated type as a new declaration, keeping every existing one",
+									}}
+									disabled={!rowAssigned || state.instApplying}
+									onApply={() => handleRowApply(text, assigned, false, undefined)}
+									onReplace={() => handleRowApply(text, assigned, false, [text])}
+									onInsert={() => handleRowApply(text, assigned, true, [text])}
+								/>
 							)}
 						</div>
 					);
@@ -506,35 +504,18 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 						</div>
 					)}
 				</div>
-				<div class="btn-row">
-					<button
-						class="apply-btn"
-						type="button"
-						title="Replace the declarations, instantiating the assigned overloads; keep the others"
-						disabled={!hasAssignments || state.instApplying}
-						onClick={() => handleApply(false, undefined)}
-					>
-						{state.instApplying ? "Applying…" : "Apply"}
-					</button>
-					<button
-						class="replace-btn"
-						type="button"
-						title="Replace ALL declarations with only the instantiated overloads (drops the rest)"
-						disabled={!hasAssignments || state.instApplying}
-						onClick={() => handleApply(false, assignedTexts)}
-					>
-						Replace
-					</button>
-					<button
-						class="insert-btn"
-						type="button"
-						title="Add the instantiated overloads as new declarations, keeping every existing one"
-						disabled={!hasAssignments || state.instApplying}
-						onClick={() => handleApply(true, assignedTexts)}
-					>
-						Insert
-					</button>
-				</div>
+				<ActionRow
+					titles={{
+						apply: "Replace the declarations, instantiating the assigned overloads; keep the others",
+						replace: "Replace ALL declarations with only the instantiated overloads (drops the rest)",
+						insert: "Add the instantiated overloads as new declarations, keeping every existing one",
+					}}
+					disabled={!hasAssignments || state.instApplying}
+					busy={state.instApplying}
+					onApply={() => handleApply(false, undefined)}
+					onReplace={() => handleApply(false, assignedTexts)}
+					onInsert={() => handleApply(true, assignedTexts)}
+				/>
 			</div>
 		</section>
 	);
