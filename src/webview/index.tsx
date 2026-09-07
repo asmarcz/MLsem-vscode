@@ -202,14 +202,21 @@ function reducer(state: AppState, action: Action): AppState {
 	}
 }
 
+// One overload's variable -> concrete-type assignments, as sent to the extension.
+interface Instantiation {
+	overload: string;
+	assignments: { var: string; type: string }[];
+}
+
+function toAssignmentPairs(vars: Record<string, string>): Instantiation["assignments"] {
+	return Object.entries(vars).map(([variable, type]) => ({ var: variable, type }));
+}
+
 // Build the instantiations payload from the assignment map, skipping overloads
 // with no (non-empty) assignments.
-function buildInstantiations(assignments: Assignments) {
+function buildInstantiations(assignments: Assignments): Instantiation[] {
 	return Object.entries(assignments)
-		.map(([overload, vars]) => ({
-			overload,
-			assignments: Object.entries(vars).map(([variable, type]) => ({ var: variable, type })),
-		}))
+		.map(([overload, vars]) => ({ overload, assignments: toAssignmentPairs(vars) }))
 		.filter((i) => i.assignments.length > 0);
 }
 
@@ -357,41 +364,32 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 		return () => clearTimeout(timer);
 	}, [state.assignments, state.binding, dispatch]);
 
-	// All assigned overloads. [only] selects which result overloads to write:
-	//  Apply (scoped) → only=undefined (keep unassigned overloads too);
-	//  Replace (full) → only=assignedTexts (drop unassigned);
-	//  Insert → append, only=assignedTexts (append just the instantiated ones).
-	function handleApply(append: boolean, only?: string[]) {
-		if (!hasAssignments || !state.binding || !claimApply()) return;
+	// Write [instantiations]. [only] selects which result overloads survive:
+	//  Apply (scoped) → only=undefined (the unassigned overloads are kept too);
+	//  Replace (full) → only=<the instantiated texts> (drop everything else);
+	//  Insert → append, same [only] as Replace.
+	// Overloads with nothing assigned are dropped, so an empty payload is a no-op.
+	function postApply(instantiations: Instantiation[], append: boolean, only?: string[]) {
+		const payload = instantiations.filter((i) => i.assignments.length > 0);
+		if (payload.length === 0 || !state.binding || !claimApply()) return;
 		dispatch({ type: "INST_APPLYING" });
 		vscodeApi.postMessage({
 			type: "applyInstantiate",
 			name: state.binding.name,
-			instantiations: buildInstantiations(state.assignments),
+			instantiations: payload,
 			append,
 			only,
 		});
 	}
 
-	// One overload's instantiation. [only] picks the scope, mirroring the global
-	// buttons: Apply (scoped) keeps the other overloads, Replace/Insert act on
-	// just this one.
+	// Every assigned overload at once.
+	function handleApply(append: boolean, only?: string[]) {
+		postApply(buildInstantiations(state.assignments), append, only);
+	}
+
+	// Just this row's overload, with the same [only] semantics as above.
 	function handleRowApply(text: string, assigned: Record<string, string>, append: boolean, only?: string[]) {
-		if (!state.binding || !claimApply()) return;
-		const instantiations = [
-			{
-				overload: text,
-				assignments: Object.entries(assigned).map(([variable, type]) => ({ var: variable, type })),
-			},
-		];
-		dispatch({ type: "INST_APPLYING" });
-		vscodeApi.postMessage({
-			type: "applyInstantiate",
-			name: state.binding.name,
-			instantiations,
-			append,
-			only,
-		});
+		postApply([{ overload: text, assignments: toAssignmentPairs(assigned) }], append, only);
 	}
 
 	return (
