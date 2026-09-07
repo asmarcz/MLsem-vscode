@@ -62,6 +62,25 @@ type ExtensionMessage =
 	| { type: "instantiatePreview"; ok: boolean; overloads?: string[]; error?: string }
 	| { type: "instantiated"; error?: string };
 
+// The extension host is a separate process, so what arrives over postMessage is
+// untyped at runtime. Check the discriminant before dispatching: without this a
+// renamed or dropped message falls through the reducer's default branch and the
+// panel simply stops updating, with nothing to show for it.
+const EXTENSION_MESSAGE_TYPES: ReadonlySet<string> = new Set<ExtensionMessage["type"]>([
+	"overloads",
+	"preview",
+	"applied",
+	"instantiatePreview",
+	"instantiated",
+]);
+
+function asExtensionMessage(data: unknown): ExtensionMessage | null {
+	if (typeof data !== "object" || data === null) return null;
+	const { type } = data as { type?: unknown };
+	if (typeof type !== "string" || !EXTENSION_MESSAGE_TYPES.has(type)) return null;
+	return data as ExtensionMessage;
+}
+
 type Action =
 	| ExtensionMessage // OVERLOADS/PREVIEW/etc. are dispatched directly
 	| { type: "TOGGLE"; text: string }
@@ -514,9 +533,13 @@ function App() {
 
 	useEffect(() => {
 		function handler(event: MessageEvent) {
-			const msg = event.data as ExtensionMessage;
-			// All extension messages map straight onto reducer actions.
-			dispatch(msg as Action);
+			// Every recognised extension message maps straight onto a reducer action.
+			const msg = asExtensionMessage(event.data);
+			if (!msg) {
+				console.warn("MLsem: ignoring unrecognised message from the extension", event.data);
+				return;
+			}
+			dispatch(msg);
 		}
 		window.addEventListener("message", handler);
 		vscodeApi.postMessage({ type: "ready" });
