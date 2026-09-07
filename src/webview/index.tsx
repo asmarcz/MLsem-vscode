@@ -94,7 +94,8 @@ type Action =
 	| { type: "TOGGLE"; text: string }
 	| { type: "APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
-	| { type: "INST_APPLYING" };
+	| { type: "INST_APPLYING" }
+	| { type: "INST_CLEAR_PREVIEW" };
 
 const initialState: AppState = {
 	version: STATE_VERSION,
@@ -186,6 +187,8 @@ function reducer(state: AppState, action: Action): AppState {
 		}
 		case "INST_APPLYING":
 			return { ...state, instApplying: true };
+		case "INST_CLEAR_PREVIEW":
+			return { ...state, instPreview: null };
 		case "instantiatePreview":
 			return {
 				...state,
@@ -331,7 +334,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 		if (!state.binding) return;
 		const instantiations = buildInstantiations(state.assignments);
 		if (instantiations.length === 0) {
-			dispatch({ type: "instantiatePreview", ok: true, overloads: undefined });
+			dispatch({ type: "INST_CLEAR_PREVIEW" });
 			return;
 		}
 		const name = state.binding.name;
