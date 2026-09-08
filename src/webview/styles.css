@@ -178,6 +178,14 @@ body {
 	gap: 12px;
 }
 
+/* The shared preview and global action row, below the per-overload list. */
+.inst-footer {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 10px;
+}
+
 /* Left column: the overload signature and its variable inputs; takes the
    remaining width so a long signature wraps instead of shoving the buttons
    off the card. */

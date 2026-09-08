@@ -502,7 +502,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 					);
 				})}
 			</div>
-			<div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+			<div class="inst-footer">
 				<div>
 					{inst.preview && inst.preview.length > 0 ? (
 						<div class="preview-block preview-lines">
