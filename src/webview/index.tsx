@@ -4,9 +4,7 @@ import css from "./styles.css";
 
 declare function acquireVsCodeApi(): {
 	postMessage(msg: unknown): void;
-	// Whatever a previous extension version happened to persist — untyped until
-	// [restoreState] has checked it.
-	getState(): unknown;
+	getState(): AppState | undefined;
 	setState(state: AppState): void;
 };
 
@@ -46,13 +44,7 @@ interface ToolState<P> {
 
 const initialToolState = { preview: null, applying: false, stale: false, error: null };
 
-// Bump whenever [AppState]'s shape changes. State persisted by an older
-// extension version is then discarded instead of being restored into a shape
-// that no longer matches, which would surface as a render crash.
-const STATE_VERSION = 2;
-
 interface AppState {
-	version: number;
 	found: boolean;
 	binding: Binding | null;
 	overloads: Overload[];
@@ -106,7 +98,6 @@ type Action =
 	| { type: "INST_CLEAR_PREVIEW" };
 
 const initialState: AppState = {
-	version: STATE_VERSION,
 	found: false,
 	binding: null,
 	overloads: [],
@@ -535,17 +526,9 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	);
 }
 
-function restoreState(fallback: AppState): AppState {
-	const saved = vscodeApi.getState();
-	if (typeof saved === "object" && saved !== null && (saved as AppState).version === STATE_VERSION) {
-		return saved as AppState;
-	}
-	return fallback;
-}
-
 function App() {
 	// Lazy init, so the restore runs once instead of on every render.
-	const [state, dispatch] = useReducer(reducer, initialState, restoreState);
+	const [state, dispatch] = useReducer(reducer, initialState, (fallback) => vscodeApi.getState() ?? fallback);
 
 	useEffect(() => {
 		vscodeApi.setState(state);
