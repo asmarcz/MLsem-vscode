@@ -269,13 +269,13 @@ interface ActionRowProps {
 function ActionRow({ titles, onApply, onReplace, onInsert, disabled, busy, class: extraClass }: ActionRowProps) {
 	return (
 		<div class={extraClass ? `btn-row ${extraClass}` : "btn-row"}>
-			<button class="apply-btn" type="button" title={titles.apply} disabled={disabled} onClick={onApply}>
+			<button class="btn btn-primary" type="button" title={titles.apply} disabled={disabled} onClick={onApply}>
 				{busy ? "Applying…" : "Apply"}
 			</button>
-			<button class="replace-btn" type="button" title={titles.replace} disabled={disabled} onClick={onReplace}>
+			<button class="btn btn-secondary" type="button" title={titles.replace} disabled={disabled} onClick={onReplace}>
 				Replace
 			</button>
-			<button class="insert-btn" type="button" title={titles.insert} disabled={disabled} onClick={onInsert}>
+			<button class="btn btn-secondary" type="button" title={titles.insert} disabled={disabled} onClick={onInsert}>
 				Insert
 			</button>
 		</div>

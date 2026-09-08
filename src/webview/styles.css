@@ -255,13 +255,12 @@ body {
 	font-style: italic;
 }
 
-.apply-btn {
+/* Every button shares this box. The 1px border belongs to the base and the
+   primary variant only makes it transparent, so both variants have the same box
+   model — otherwise the two sets of labels sit 1px apart. */
+.btn {
 	display: inline-block;
 	padding: 6px 14px;
-	background: var(--vscode-button-background);
-	color: var(--vscode-button-foreground);
-	/* Transparent 1px border so the box model matches [.insert-btn]'s 1px
-	   border — otherwise Apply's text sits 1px higher and the baselines drift. */
 	border: 1px solid transparent;
 	border-radius: var(--tk-radius);
 	cursor: pointer;
@@ -269,13 +268,31 @@ body {
 	font-size: var(--vscode-font-size);
 }
 
-.apply-btn:hover:not(:disabled) {
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Apply: the default action of both tools. */
+.btn-primary {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.btn-primary:hover:not(:disabled) {
 	background: var(--vscode-button-hoverBackground);
 }
 
-.apply-btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
+/* Replace and Insert: the same shape in the muted secondary palette, so Apply
+   stays the visual default. */
+.btn-secondary {
+	background: var(--vscode-button-secondaryBackground, transparent);
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	border-color: var(--tk-border-strong, var(--vscode-button-border, transparent));
+}
+
+.btn-secondary:hover:not(:disabled) {
+	background: var(--vscode-button-secondaryHoverBackground, var(--tk-border-soft));
 }
 
 .btn-row {
@@ -288,32 +305,6 @@ body {
    with its signature, and never shrink. */
 .inst-row-btns {
 	flex-shrink: 0;
-}
-
-/* Replace and Insert are the secondary actions — same shape as Apply but the
-   muted secondary button palette so Apply stays the visual default. */
-.insert-btn,
-.replace-btn {
-	display: inline-block;
-	padding: 6px 14px;
-	background: var(--vscode-button-secondaryBackground, transparent);
-	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-	border: 1px solid var(--tk-border-strong, var(--vscode-button-border, transparent));
-	border-radius: var(--tk-radius);
-	cursor: pointer;
-	font-family: var(--vscode-font-family);
-	font-size: var(--vscode-font-size);
-}
-
-.insert-btn:hover:not(:disabled),
-.replace-btn:hover:not(:disabled) {
-	background: var(--vscode-button-secondaryHoverBackground, var(--tk-border-soft));
-}
-
-.insert-btn:disabled,
-.replace-btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
 }
 
 .stale-note {
