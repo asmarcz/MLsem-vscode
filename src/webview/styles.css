@@ -61,6 +61,18 @@ body {
 	background: var(--vscode-editor-background);
 }
 
+/* Secondary text: subtitles and status notes, set to recede. */
+.note {
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
+}
+
+/* A note about absence rather than about content — nothing selected, nothing
+   found. Italic sets it apart from a note that is reporting something. */
+.note-absent {
+	font-style: italic;
+}
+
 .tool-card {
 	border: 1px solid var(--tk-border);
 	border-radius: var(--tk-radius-card);
@@ -75,8 +87,6 @@ body {
 
 .tool-subtitle {
 	margin: 0 0 12px 0;
-	font-size: var(--tk-small-size);
-	opacity: var(--tk-dim);
 }
 
 .layout {
@@ -308,8 +318,6 @@ body {
 }
 
 .stale-note {
-	font-size: var(--tk-small-size);
-	opacity: var(--tk-dim);
 	margin-bottom: 4px;
 }
 
@@ -323,13 +331,9 @@ body {
 }
 
 .empty-note {
-	opacity: var(--tk-dim);
-	font-style: italic;
 	margin-top: 4px;
 }
 
 .not-found {
-	opacity: var(--tk-dim);
-	font-style: italic;
 	margin-top: 16px;
 }

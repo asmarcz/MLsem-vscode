@@ -310,15 +310,15 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	return (
 		<section class="tool-card">
 			<p class="tool-title">Merge overloads</p>
-			<p class="tool-subtitle">Combine selected overloads into a single declared type.</p>
+			<p class="note tool-subtitle">Combine selected overloads into a single declared type.</p>
 			{merge.error && <p class="error-note">{merge.error}</p>}
-			{merge.stale && <p class="stale-note">Types changed — selection updated.</p>}
+			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
 				<div>
 					<p class="column-title">
 						Overloads for <code>{state.binding?.name ?? ""}</code>
 					</p>
-					{state.overloads.length === 0 && <p class="empty-note">No overloads available.</p>}
+					{state.overloads.length === 0 && <p class="note note-absent empty-note">No overloads available.</p>}
 					{state.overloads.map(({ text }) => (
 						<label
 							key={text}
@@ -337,7 +337,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 				<div class="merge-area">
 					<p class="column-title">Merge area</p>
 					<div class="merge-list">
-						{state.selected.length === 0 && <p class="empty-note">Select overloads on the left.</p>}
+						{state.selected.length === 0 && <p class="note note-absent empty-note">Select overloads on the left.</p>}
 						{state.selected.map((t) => (
 							<div key={t} class="surface code-text merge-item">
 								{t}
@@ -424,18 +424,18 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	return (
 		<section class="tool-card">
 			<p class="tool-title">Instantiate type variables</p>
-			<p class="tool-subtitle">
+			<p class="note tool-subtitle">
 				Pin a type variable to a concrete type, per overload. Variables are independent across overloads.
 			</p>
 			{inst.error && <p class="error-note">{inst.error}</p>}
-			{inst.stale && <p class="stale-note">Types changed — assignments updated.</p>}
+			{inst.stale && <p class="note stale-note">Types changed — assignments updated.</p>}
 			<datalist id={DATALIST_ID}>
 				{state.concreteTypes.map((t) => (
 					<option key={t} value={t} />
 				))}
 			</datalist>
 			<div class="inst-list">
-				{state.overloads.length === 0 && <p class="empty-note">No overloads available.</p>}
+				{state.overloads.length === 0 && <p class="note note-absent empty-note">No overloads available.</p>}
 				{state.overloads.map(({ text, vars }) => {
 					const assigned = state.assignments[text] ?? {};
 					const rowAssigned = Object.keys(assigned).length > 0;
@@ -444,7 +444,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 							<div class="inst-overload-main">
 								<div class="code-text inst-overload-text">{text}</div>
 								{vars.length === 0 ? (
-									<p class="empty-note">No type variables.</p>
+									<p class="note note-absent empty-note">No type variables.</p>
 								) : (
 									<div class="var-row">
 										{vars.map((v) => (
@@ -570,7 +570,7 @@ function App() {
 		return (
 			<>
 				<style>{css}</style>
-				<p class="not-found">No overloads found at this position.</p>
+				<p class="note note-absent not-found">No overloads found at this position.</p>
 			</>
 		);
 	}
