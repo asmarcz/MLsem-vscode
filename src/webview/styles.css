@@ -31,6 +31,13 @@ body {
 	/* Secondary text: subtitles, hints, notes — everything meant to recede. */
 	--tk-small-size: 0.85em;
 	--tk-dim: 0.7;
+
+	/* A combobox's clear button sits in a gutter of [--tk-clear-inset] on each
+	   side of it. The input derives its trailing padding from these two rather
+	   than repeating the sum as a literal that has to be kept in step by hand. */
+	--tk-clear-size: 16px;
+	--tk-clear-inset: 4px;
+	--tk-clear-gutter: calc(var(--tk-clear-size) + 2 * var(--tk-clear-inset));
 }
 
 .dashboard {
@@ -226,8 +233,10 @@ body {
 }
 
 .var-combobox {
-	width: 13ch;
-	padding: 2px 20px 2px 6px;
+	/* 14ch rather than 13: the trailing gutter is inside the border box, so the
+	   extra character's worth of width keeps the visible text area unchanged. */
+	width: 14ch;
+	padding: 2px var(--tk-clear-gutter) 2px 6px;
 	background: var(--vscode-input-background);
 	color: var(--vscode-input-foreground);
 	border: 1px solid var(--vscode-input-border, var(--tk-border));
@@ -243,14 +252,14 @@ body {
 
 .var-clear {
 	position: absolute;
-	right: 4px;
+	right: var(--tk-clear-inset);
 	top: 50%;
 	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 15px;
-	height: 15px;
+	width: var(--tk-clear-size);
+	height: var(--tk-clear-size);
 	padding: 0;
 	border: none;
 	border-radius: 50%;
