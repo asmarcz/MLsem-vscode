@@ -39,6 +39,28 @@ body {
 	gap: 16px;
 }
 
+/* --- Primitives ---
+   Composed in the markup, e.g. class="surface code-text merge-item". They come
+   first so the specific classes below can override a declaration by source
+   order without needing extra specificity. */
+
+/* A rendered type signature. Breaks anywhere, so a long one wraps inside the
+   panel instead of making it scroll sideways. */
+.code-text {
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+/* A boxed element sitting on the editor background inside a card. */
+.surface {
+	padding: 8px 10px;
+	border: 1px solid var(--tk-border);
+	border-radius: var(--tk-radius);
+	background: var(--vscode-editor-background);
+}
+
 .tool-card {
 	border: 1px solid var(--tk-border);
 	border-radius: var(--tk-radius-card);
@@ -84,16 +106,8 @@ body {
 
 .overload-box {
 	display: block;
-	padding: 8px 10px;
 	margin-bottom: 6px;
-	border: 1px solid var(--tk-border);
-	border-radius: var(--tk-radius);
 	cursor: pointer;
-	background: var(--vscode-editor-background);
-	font-family: var(--tk-code-font);
-	font-size: var(--tk-code-size);
-	white-space: pre-wrap;
-	word-break: break-all;
 	transition:
 		border-color 0.1s,
 		background 0.1s;
@@ -127,15 +141,9 @@ body {
 	min-height: 32px;
 }
 
+/* Tighter than the default surface padding — these are compact list rows. */
 .merge-item {
 	padding: 6px 10px;
-	border: 1px solid var(--tk-border);
-	border-radius: var(--tk-radius);
-	background: var(--vscode-editor-background);
-	font-family: var(--tk-code-font);
-	font-size: var(--tk-code-size);
-	white-space: pre-wrap;
-	word-break: break-all;
 }
 
 /* Instantiate tool: one card per overload, fixed structure so the layout does
@@ -150,10 +158,6 @@ body {
 	display: flex;
 	align-items: flex-start;
 	gap: 12px;
-	border: 1px solid var(--tk-border);
-	border-radius: var(--tk-radius);
-	background: var(--vscode-editor-background);
-	padding: 8px 10px;
 }
 
 /* Left column: the overload signature and its variable inputs; takes the
@@ -165,10 +169,6 @@ body {
 }
 
 .inst-overload-text {
-	font-family: var(--tk-code-font);
-	font-size: var(--tk-code-size);
-	white-space: pre-wrap;
-	word-break: break-all;
 	margin-bottom: 8px;
 }
 
@@ -238,15 +238,10 @@ body {
 	background: var(--tk-border-soft);
 }
 
+/* The preview is the result, so it takes the accent border rather than the
+   neutral surface one. */
 .preview-block {
-	padding: 8px 10px;
-	background: var(--vscode-editor-background);
-	border: 1px solid var(--vscode-focusBorder);
-	border-radius: var(--tk-radius);
-	font-family: var(--tk-code-font);
-	font-size: var(--tk-code-size);
-	white-space: pre-wrap;
-	word-break: break-all;
+	border-color: var(--vscode-focusBorder);
 }
 
 .preview-lines {

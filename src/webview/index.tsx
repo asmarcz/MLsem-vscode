@@ -320,7 +320,10 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					</p>
 					{state.overloads.length === 0 && <p class="empty-note">No overloads available.</p>}
 					{state.overloads.map(({ text }) => (
-						<label key={text} class={`overload-box${state.selected.includes(text) ? " selected" : ""}`}>
+						<label
+							key={text}
+							class={`surface code-text overload-box${state.selected.includes(text) ? " selected" : ""}`}
+						>
 							<input
 								type="checkbox"
 								class="overload-checkbox"
@@ -336,16 +339,16 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					<div class="merge-list">
 						{state.selected.length === 0 && <p class="empty-note">Select overloads on the left.</p>}
 						{state.selected.map((t) => (
-							<div key={t} class="merge-item">
+							<div key={t} class="surface code-text merge-item">
 								{t}
 							</div>
 						))}
 					</div>
 					<div>
 						{merge.preview ? (
-							<div class="preview-block">{merge.preview}</div>
+							<div class="surface code-text preview-block">{merge.preview}</div>
 						) : (
-							<div class="preview-block preview-placeholder">
+							<div class="surface code-text preview-block preview-placeholder">
 								{state.selected.length === 0 ? "Select overloads to see a preview." : "Loading preview…"}
 							</div>
 						)}
@@ -437,9 +440,9 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 					const assigned = state.assignments[text] ?? {};
 					const rowAssigned = Object.keys(assigned).length > 0;
 					return (
-						<div key={text} class="inst-overload">
+						<div key={text} class="surface inst-overload">
 							<div class="inst-overload-main">
-								<div class="inst-overload-text">{text}</div>
+								<div class="code-text inst-overload-text">{text}</div>
 								{vars.length === 0 ? (
 									<p class="empty-note">No type variables.</p>
 								) : (
@@ -510,7 +513,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 							))}
 						</div>
 					) : (
-						<div class="preview-block preview-placeholder">
+						<div class="surface code-text preview-block preview-placeholder">
 							{hasAssignments ? "Loading preview…" : "Assign a type variable to see a preview."}
 						</div>
 					)}
