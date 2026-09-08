@@ -127,6 +127,14 @@ body {
 	border-color: var(--tk-border-strong, var(--vscode-foreground));
 }
 
+/* The checkbox itself is visually hidden, so the label has to carry the focus
+   indicator — without this there is no way to tell which overload the keyboard
+   is on. */
+.overload-box:has(.overload-checkbox:focus-visible) {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
 /* Selected: a light accent tint over the page background (so the text colour
    is untouched and stays readable in light themes) plus an accent border. */
 .overload-box.selected {
