@@ -491,7 +491,11 @@ function App() {
 	}, [state]);
 
 	useEffect(() => {
-		function handler(event: MessageEvent) {
+		// [MessageEvent<unknown>] rather than the default [MessageEvent<any>]: with
+		// [any] the guard below is only a runtime check, because dispatching the
+		// raw data would compile just as happily. With [unknown] it is the only way
+		// to reach [dispatch], so skipping it is a build error.
+		function handler(event: MessageEvent<unknown>) {
 			// Every recognised extension message maps straight onto a reducer action.
 			if (!isFromExtension(event.data)) {
 				console.warn("MLsem: ignoring unrecognised message from the extension", event.data);
