@@ -188,12 +188,14 @@ body {
 	gap: 12px;
 }
 
-/* The shared preview and global action row, below the per-overload list. */
+/* The shared preview and global action row, below the per-overload list. This
+   acts on every overload at once, so it needs to read as its own group: the
+   separation from the list is twice the 8px gap between the cards within it. */
 .inst-footer {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
-	margin-top: 10px;
+	margin-top: 16px;
 }
 
 /* Left column: the overload signature and its variable inputs; takes the
