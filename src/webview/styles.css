@@ -102,6 +102,9 @@ body {
 	border-bottom: 1px solid var(--tk-border-soft);
 }
 
+/* Visually hidden but still focusable and still announced: the label is the
+   visible control, and [.overload-box:has(...:focus-visible)] below draws the
+   focus ring on its behalf. */
 .overload-checkbox {
 	position: absolute;
 	width: 1px;
@@ -110,7 +113,7 @@ body {
 	padding: 0;
 	border: 0;
 	overflow: hidden;
-	clip: rect(0, 0, 0, 0);
+	clip-path: inset(50%);
 	white-space: nowrap;
 }
 
