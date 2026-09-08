@@ -1,6 +1,9 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
+import type { ExtensionToWebview, WebviewToExtension } from "./protocol";
+
+// --- LSP server contract (distinct from the webview contract in protocol.ts) ---
 
 interface OverloadsResult {
 	found: boolean;
@@ -36,30 +39,6 @@ interface InstantiatePreviewResult {
 	stale?: boolean;
 	error?: string;
 }
-
-// One overload's variable -> concrete-type assignments.
-interface Instantiation {
-	overload: string;
-	assignments: { var: string; type: string }[];
-}
-
-type WebviewToExtension =
-	| { type: "ready" }
-	| { type: "requestPreview"; name: string; overloadTexts: string[] }
-	// [append]: add the result as new declaration line(s) instead of replacing.
-	// [keepOthers]: on replace, keep the unselected overloads (scoped Apply)
-	// rather than dropping them (full Replace).
-	| { type: "apply"; name: string; overloadTexts: string[]; append: boolean; keepOthers: boolean }
-	| { type: "requestInstantiatePreview"; name: string; instantiations: Instantiation[] }
-	// [only]: restrict the written result to these overload texts (per-overload
-	// Insert writes a single one). Absent/undefined means all.
-	| {
-			type: "applyInstantiate";
-			name: string;
-			instantiations: Instantiation[];
-			append: boolean;
-			only?: string[];
-	  };
 
 let panel: vscode.WebviewPanel | undefined;
 let currentUri: vscode.Uri | undefined;
@@ -110,8 +89,14 @@ async function fetchOverloads(uri: vscode.Uri, position: vscode.Position): Promi
 	});
 }
 
+// The single typed exit toward the webview. Everything the extension sends goes
+// through here, so a message the webview does not declare fails to compile.
+function post(message: ExtensionToWebview): void {
+	panel?.webview.postMessage(message);
+}
+
 function postOverloads(result: OverloadsResult): void {
-	panel?.webview.postMessage({
+	post({
 		type: "overloads",
 		found: result.found,
 		binding: { name: result.name, declared: result.declared },
@@ -235,7 +220,7 @@ export function openTypeToolkit(
 				overloadTexts: message.overloadTexts,
 				text: textOf(uri),
 			});
-			panel?.webview.postMessage({ type: "preview", ok: result.ok, text: result.text, error: result.error });
+			post({ type: "preview", ok: result.ok, text: result.text, error: result.error });
 		} else if (message.type === "apply") {
 			const uri = currentUri;
 			if (!uri) return;
@@ -248,7 +233,7 @@ export function openTypeToolkit(
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);
-			panel?.webview.postMessage({ type: "applied", error: applyError });
+			post({ type: "applied", error: applyError });
 		} else if (message.type === "requestInstantiatePreview") {
 			const uri = currentUri;
 			if (!uri) return;
@@ -260,7 +245,7 @@ export function openTypeToolkit(
 			});
 			// A stale preview is silently ignored (the next refresh reconciles);
 			// only forward a usable result or a genuine error.
-			panel?.webview.postMessage({
+			post({
 				type: "instantiatePreview",
 				ok: result.ok,
 				overloads: result.overloads,
@@ -278,7 +263,7 @@ export function openTypeToolkit(
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);
-			panel?.webview.postMessage({ type: "instantiated", error: applyError });
+			post({ type: "instantiated", error: applyError });
 		}
 	});
 

@@ -1,33 +1,27 @@
 import { render } from "preact";
 import { useEffect, useReducer, useRef } from "preact/hooks";
+import {
+	type Binding,
+	type ExtensionToWebview,
+	type Instantiation,
+	isFromExtension,
+	type Overload,
+	type WebviewToExtension,
+} from "../protocol";
 import css from "./styles.css";
 
 declare function acquireVsCodeApi(): {
-	postMessage(msg: unknown): void;
+	postMessage(msg: WebviewToExtension): void;
 	getState(): AppState | undefined;
 	setState(state: AppState): void;
 };
 
 const vscodeApi = acquireVsCodeApi();
 
-interface Binding {
-	name: string;
-	declared: boolean;
-}
-
 // Per-overload (keyed by rendered text) map of variable name -> chosen concrete
 // type string. Variables are independent per overload, so they are never shared
 // across keys.
 type Assignments = Record<string, Record<string, string>>;
-
-interface Overload {
-	// The rendered signature. This is the overload's identity everywhere — the
-	// same one the server matches on — so selections and assignments survive
-	// edits and never refer to a stale index.
-	text: string;
-	// Free type-variable names of this overload.
-	vars: string[];
-}
 
 // Both tools have the same lifecycle — request a preview, apply it, report an
 // error — so they share a shape instead of two prefixed copies of these four
@@ -57,40 +51,8 @@ interface AppState {
 	instantiate: ToolState<string[]>;
 }
 
-type ExtensionMessage =
-	| {
-			type: "overloads";
-			found: boolean;
-			binding: Binding;
-			overloads: Overload[];
-			concreteTypes: string[];
-	  }
-	| { type: "preview"; ok: boolean; text?: string; error?: string }
-	| { type: "applied"; error?: string }
-	| { type: "instantiatePreview"; ok: boolean; overloads?: string[]; error?: string }
-	| { type: "instantiated"; error?: string };
-
-// The extension host is a separate process, so what arrives over postMessage is
-// untyped at runtime. Check the discriminant before dispatching: without this a
-// renamed or dropped message falls through the reducer's default branch and the
-// panel simply stops updating, with nothing to show for it.
-const EXTENSION_MESSAGE_TYPES: ReadonlySet<string> = new Set<ExtensionMessage["type"]>([
-	"overloads",
-	"preview",
-	"applied",
-	"instantiatePreview",
-	"instantiated",
-]);
-
-function asExtensionMessage(data: unknown): ExtensionMessage | null {
-	if (typeof data !== "object" || data === null) return null;
-	const { type } = data as { type?: unknown };
-	if (typeof type !== "string" || !EXTENSION_MESSAGE_TYPES.has(type)) return null;
-	return data as ExtensionMessage;
-}
-
 type Action =
-	| ExtensionMessage // OVERLOADS/PREVIEW/etc. are dispatched directly
+	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
 	| { type: "TOGGLE"; text: string }
 	| { type: "APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
@@ -200,12 +162,6 @@ function reducer(state: AppState, action: Action): AppState {
 		default:
 			return state;
 	}
-}
-
-// One overload's variable -> concrete-type assignments, as sent to the extension.
-interface Instantiation {
-	overload: string;
-	assignments: { var: string; type: string }[];
 }
 
 function toAssignmentPairs(vars: Record<string, string>): Instantiation["assignments"] {
@@ -537,12 +493,11 @@ function App() {
 	useEffect(() => {
 		function handler(event: MessageEvent) {
 			// Every recognised extension message maps straight onto a reducer action.
-			const msg = asExtensionMessage(event.data);
-			if (!msg) {
+			if (!isFromExtension(event.data)) {
 				console.warn("MLsem: ignoring unrecognised message from the extension", event.data);
 				return;
 			}
-			dispatch(msg);
+			dispatch(event.data);
 		}
 		window.addEventListener("message", handler);
 		vscodeApi.postMessage({ type: "ready" });
