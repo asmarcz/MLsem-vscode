@@ -18,6 +18,19 @@ body {
 	--tk-border-strong: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
 	--tk-border-soft: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
 	--tk-surface: color-mix(in srgb, var(--vscode-foreground) 3%, var(--vscode-editor-background));
+
+	/* Every boxed element shares one radius; the outer card is the deliberate
+	   exception, a step larger so it reads as the container. */
+	--tk-radius: 3px;
+	--tk-radius-card: 4px;
+
+	/* Anything showing a type signature uses the editor font at one size. */
+	--tk-code-font: var(--vscode-editor-font-family, monospace);
+	--tk-code-size: 0.92em;
+
+	/* Secondary text: subtitles, hints, notes — everything meant to recede. */
+	--tk-small-size: 0.85em;
+	--tk-dim: 0.7;
 }
 
 .dashboard {
@@ -28,7 +41,7 @@ body {
 
 .tool-card {
 	border: 1px solid var(--tk-border);
-	border-radius: 4px;
+	border-radius: var(--tk-radius-card);
 	padding: 12px;
 	background: var(--tk-surface);
 }
@@ -40,8 +53,8 @@ body {
 
 .tool-subtitle {
 	margin: 0 0 12px 0;
-	font-size: 0.85em;
-	opacity: 0.7;
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
 }
 
 .layout {
@@ -74,11 +87,11 @@ body {
 	padding: 8px 10px;
 	margin-bottom: 6px;
 	border: 1px solid var(--tk-border);
-	border-radius: 3px;
+	border-radius: var(--tk-radius);
 	cursor: pointer;
 	background: var(--vscode-editor-background);
-	font-family: var(--vscode-editor-font-family, monospace);
-	font-size: 0.92em;
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
 	white-space: pre-wrap;
 	word-break: break-all;
 	transition:
@@ -117,10 +130,10 @@ body {
 .merge-item {
 	padding: 6px 10px;
 	border: 1px solid var(--tk-border);
-	border-radius: 3px;
+	border-radius: var(--tk-radius);
 	background: var(--vscode-editor-background);
-	font-family: var(--vscode-editor-font-family, monospace);
-	font-size: 0.92em;
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
 	white-space: pre-wrap;
 	word-break: break-all;
 }
@@ -138,7 +151,7 @@ body {
 	align-items: flex-start;
 	gap: 12px;
 	border: 1px solid var(--tk-border);
-	border-radius: 3px;
+	border-radius: var(--tk-radius);
 	background: var(--vscode-editor-background);
 	padding: 8px 10px;
 }
@@ -152,8 +165,8 @@ body {
 }
 
 .inst-overload-text {
-	font-family: var(--vscode-editor-font-family, monospace);
-	font-size: 0.92em;
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
 	white-space: pre-wrap;
 	word-break: break-all;
 	margin-bottom: 8px;
@@ -172,8 +185,8 @@ body {
 }
 
 .var-name {
-	font-family: var(--vscode-editor-font-family, monospace);
-	font-size: 0.9em;
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
 	opacity: 0.9;
 }
 
@@ -189,9 +202,9 @@ body {
 	background: var(--vscode-input-background);
 	color: var(--vscode-input-foreground);
 	border: 1px solid var(--vscode-input-border, var(--tk-border));
-	border-radius: 3px;
-	font-family: var(--vscode-editor-font-family, monospace);
-	font-size: 0.9em;
+	border-radius: var(--tk-radius);
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
 }
 
 .var-combobox:focus {
@@ -229,9 +242,9 @@ body {
 	padding: 8px 10px;
 	background: var(--vscode-editor-background);
 	border: 1px solid var(--vscode-focusBorder);
-	border-radius: 3px;
-	font-family: var(--vscode-editor-font-family, monospace);
-	font-size: 0.92em;
+	border-radius: var(--tk-radius);
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
 	white-space: pre-wrap;
 	word-break: break-all;
 }
@@ -255,7 +268,7 @@ body {
 	/* Transparent 1px border so the box model matches [.insert-btn]'s 1px
 	   border — otherwise Apply's text sits 1px higher and the baselines drift. */
 	border: 1px solid transparent;
-	border-radius: 3px;
+	border-radius: var(--tk-radius);
 	cursor: pointer;
 	font-family: var(--vscode-font-family);
 	font-size: var(--vscode-font-size);
@@ -291,7 +304,7 @@ body {
 	background: var(--vscode-button-secondaryBackground, transparent);
 	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
 	border: 1px solid var(--tk-border-strong, var(--vscode-button-border, transparent));
-	border-radius: 3px;
+	border-radius: var(--tk-radius);
 	cursor: pointer;
 	font-family: var(--vscode-font-family);
 	font-size: var(--vscode-font-size);
@@ -309,28 +322,28 @@ body {
 }
 
 .stale-note {
-	font-size: 0.85em;
-	opacity: 0.75;
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
 	margin-bottom: 4px;
 }
 
 .error-note {
 	margin: 0 0 8px 0;
 	padding: 6px 10px;
-	border-radius: 3px;
+	border-radius: var(--tk-radius);
 	color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
 	background: var(--vscode-inputValidation-errorBackground);
 	border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 }
 
 .empty-note {
-	opacity: 0.6;
+	opacity: var(--tk-dim);
 	font-style: italic;
 	margin-top: 4px;
 }
 
 .not-found {
-	opacity: 0.7;
+	opacity: var(--tk-dim);
 	font-style: italic;
 	margin-top: 16px;
 }
