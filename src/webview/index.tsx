@@ -31,10 +31,25 @@ interface Overload {
 	vars: string[];
 }
 
+// Both tools have the same lifecycle — request a preview, apply it, report an
+// error — so they share a shape instead of two prefixed copies of these four
+// fields. [P] is what the tool previews: merge yields one line, instantiate a
+// line per overload.
+interface ToolState<P> {
+	preview: P | null;
+	applying: boolean;
+	// Set when a refresh dropped part of the input, so the tool can say the
+	// types changed underneath it.
+	stale: boolean;
+	error: string | null;
+}
+
+const initialToolState = { preview: null, applying: false, stale: false, error: null };
+
 // Bump whenever [AppState]'s shape changes. State persisted by an older
 // extension version is then discarded instead of being restored into a shape
 // that no longer matches, which would surface as a render crash.
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 interface AppState {
 	version: number;
@@ -43,18 +58,11 @@ interface AppState {
 	overloads: Overload[];
 	// Concrete-type suggestions for the instantiate comboboxes.
 	concreteTypes: string[];
-	// --- Merge tool ---
+	// Overload texts picked for merging.
 	selected: string[];
-	preview: string | null;
-	applying: boolean;
-	staleSelection: boolean;
-	error: string | null;
-	// --- Instantiate tool ---
+	merge: ToolState<string>;
 	assignments: Assignments;
-	instPreview: string[] | null;
-	instApplying: boolean;
-	instStale: boolean;
-	instError: string | null;
+	instantiate: ToolState<string[]>;
 }
 
 type ExtensionMessage =
@@ -104,15 +112,9 @@ const initialState: AppState = {
 	overloads: [],
 	concreteTypes: [],
 	selected: [],
-	preview: null,
-	applying: false,
-	staleSelection: false,
-	error: null,
+	merge: initialToolState,
 	assignments: {},
-	instPreview: null,
-	instApplying: false,
-	instStale: false,
-	instError: null,
+	instantiate: initialToolState,
 };
 
 // Drop assignment entries for overloads that no longer exist; report whether
@@ -125,6 +127,22 @@ function reconcileAssignments(prev: Assignments, texts: Set<string>): { kept: As
 		else dropped = true;
 	}
 	return { kept, dropped };
+}
+
+// A preview reply: the value on success, the error on failure — never both.
+// Serves "preview" and "instantiatePreview" alike.
+function withPreview<P>(
+	tool: ToolState<P>,
+	ok: boolean,
+	value: P | undefined,
+	error: string | undefined,
+): ToolState<P> {
+	return { ...tool, preview: ok ? (value ?? null) : null, error: ok ? null : (error ?? null) };
+}
+
+// An apply reply: the edit is done, whether or not it worked.
+function withApplied<P>(tool: ToolState<P>, error: string | undefined): ToolState<P> {
+	return { ...tool, applying: false, error: error ?? null };
 }
 
 function reducer(state: AppState, action: Action): AppState {
@@ -145,6 +163,9 @@ function reducer(state: AppState, action: Action): AppState {
 			const { kept: assignments, dropped } = sameBinding
 				? reconcileAssignments(state.assignments, texts)
 				: { kept: {}, dropped: false };
+			// [applying] deliberately survives: the extension refreshes the panel
+			// before it reports the apply finished, so this message arrives while
+			// an edit is still in flight.
 			return {
 				...state,
 				found: true,
@@ -152,30 +173,22 @@ function reducer(state: AppState, action: Action): AppState {
 				overloads: action.overloads,
 				concreteTypes: action.concreteTypes,
 				selected: kept,
-				preview: null,
-				staleSelection: kept.length < state.selected.length,
-				error: null,
+				merge: { ...state.merge, preview: null, stale: kept.length < state.selected.length, error: null },
 				assignments,
-				instPreview: null,
-				instStale: dropped,
-				instError: null,
+				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
 			};
 		}
 		case "TOGGLE": {
 			const t = action.text;
 			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
-			return { ...state, selected, preview: null, error: null };
+			return { ...state, selected, merge: { ...state.merge, preview: null, error: null } };
 		}
 		case "preview":
-			return {
-				...state,
-				preview: action.ok ? (action.text ?? null) : null,
-				error: action.ok ? null : (action.error ?? null),
-			};
+			return { ...state, merge: withPreview(state.merge, action.ok, action.text, action.error) };
 		case "APPLYING":
-			return { ...state, applying: true };
+			return { ...state, merge: { ...state.merge, applying: true } };
 		case "applied":
-			return { ...state, applying: false, error: action.error ?? null };
+			return { ...state, merge: withApplied(state.merge, action.error) };
 		case "SET_ASSIGNMENT": {
 			const forOverload = { ...(state.assignments[action.overload] ?? {}) };
 			if (action.value === "") delete forOverload[action.variable];
@@ -183,20 +196,16 @@ function reducer(state: AppState, action: Action): AppState {
 			const assignments = { ...state.assignments };
 			if (Object.keys(forOverload).length === 0) delete assignments[action.overload];
 			else assignments[action.overload] = forOverload;
-			return { ...state, assignments, instError: null };
+			return { ...state, assignments, instantiate: { ...state.instantiate, error: null } };
 		}
 		case "INST_APPLYING":
-			return { ...state, instApplying: true };
+			return { ...state, instantiate: { ...state.instantiate, applying: true } };
 		case "INST_CLEAR_PREVIEW":
-			return { ...state, instPreview: null };
+			return { ...state, instantiate: { ...state.instantiate, preview: null } };
 		case "instantiatePreview":
-			return {
-				...state,
-				instPreview: action.ok ? (action.overloads ?? null) : null,
-				instError: action.ok ? null : (action.error ?? null),
-			};
+			return { ...state, instantiate: withPreview(state.instantiate, action.ok, action.overloads, action.error) };
 		case "instantiated":
-			return { ...state, instApplying: false, instError: action.error ?? null };
+			return { ...state, instantiate: withApplied(state.instantiate, action.error) };
 		default:
 			return state;
 	}
@@ -274,7 +283,8 @@ function ActionRow({ titles, onApply, onReplace, onInsert, disabled, busy, class
 }
 
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const claimApply = useApplyGuard(state.applying);
+	const merge = state.merge;
+	const claimApply = useApplyGuard(merge.applying);
 
 	// Request a merge preview whenever the selection changes and is non-empty.
 	useEffect(() => {
@@ -301,8 +311,8 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 		<section class="tool-card">
 			<p class="tool-title">Merge overloads</p>
 			<p class="tool-subtitle">Combine selected overloads into a single declared type.</p>
-			{state.error && <p class="error-note">{state.error}</p>}
-			{state.staleSelection && <p class="stale-note">Types changed — selection updated.</p>}
+			{merge.error && <p class="error-note">{merge.error}</p>}
+			{merge.stale && <p class="stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
 				<div>
 					<p class="column-title">
@@ -332,8 +342,8 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 						))}
 					</div>
 					<div>
-						{state.preview ? (
-							<div class="preview-block">{state.preview}</div>
+						{merge.preview ? (
+							<div class="preview-block">{merge.preview}</div>
 						) : (
 							<div class="preview-block preview-placeholder">
 								{state.selected.length === 0 ? "Select overloads to see a preview." : "Loading preview…"}
@@ -346,8 +356,8 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							replace: "Replace ALL declarations with the merged type (drops the unselected overloads)",
 							insert: "Add the merged type as a new declaration, keeping every existing one",
 						}}
-						disabled={state.selected.length === 0 || state.applying}
-						busy={state.applying}
+						disabled={state.selected.length === 0 || merge.applying}
+						busy={merge.applying}
 						onApply={() => handleApply(false, true)}
 						onReplace={() => handleApply(false, false)}
 						onInsert={() => handleApply(true, false)}
@@ -359,7 +369,8 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 }
 
 function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const claimApply = useApplyGuard(state.instApplying);
+	const inst = state.instantiate;
+	const claimApply = useApplyGuard(inst.applying);
 	const assignedTexts = buildInstantiations(state.assignments).map((i) => i.overload);
 	const hasAssignments = assignedTexts.length > 0;
 
@@ -413,8 +424,8 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 			<p class="tool-subtitle">
 				Pin a type variable to a concrete type, per overload. Variables are independent across overloads.
 			</p>
-			{state.instError && <p class="error-note">{state.instError}</p>}
-			{state.instStale && <p class="stale-note">Types changed — assignments updated.</p>}
+			{inst.error && <p class="error-note">{inst.error}</p>}
+			{inst.stale && <p class="stale-note">Types changed — assignments updated.</p>}
 			<datalist id={DATALIST_ID}>
 				{state.concreteTypes.map((t) => (
 					<option key={t} value={t} />
@@ -478,7 +489,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 										replace: "Replace ALL declarations with only this instantiated overload (drops the others)",
 										insert: "Add this overload's instantiated type as a new declaration, keeping every existing one",
 									}}
-									disabled={!rowAssigned || state.instApplying}
+									disabled={!rowAssigned || inst.applying}
 									onApply={() => handleRowApply(text, assigned, false, undefined)}
 									onReplace={() => handleRowApply(text, assigned, false, [text])}
 									onInsert={() => handleRowApply(text, assigned, true, [text])}
@@ -490,11 +501,11 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 			</div>
 			<div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
 				<div>
-					{state.instPreview && state.instPreview.length > 0 ? (
+					{inst.preview && inst.preview.length > 0 ? (
 						<div class="preview-block preview-lines">
 							{/* Keyed by position: two overloads can instantiate to the same
-						    signature, so the text is not a unique identity here. */}
-							{state.instPreview.map((line, i) => (
+							    signature, so the text is not a unique identity here. */}
+							{inst.preview.map((line, i) => (
 								<div key={i}>{line}</div>
 							))}
 						</div>
@@ -510,8 +521,8 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 						replace: "Replace ALL declarations with only the instantiated overloads (drops the rest)",
 						insert: "Add the instantiated overloads as new declarations, keeping every existing one",
 					}}
-					disabled={!hasAssignments || state.instApplying}
-					busy={state.instApplying}
+					disabled={!hasAssignments || inst.applying}
+					busy={inst.applying}
 					onApply={() => handleApply(false, undefined)}
 					onReplace={() => handleApply(false, assignedTexts)}
 					onInsert={() => handleApply(true, assignedTexts)}
