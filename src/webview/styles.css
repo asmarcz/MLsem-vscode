@@ -267,7 +267,9 @@ body {
 	color: var(--vscode-input-foreground);
 	opacity: 0.55;
 	cursor: pointer;
-	font-size: 13px;
+	/* Buttons do not inherit type, and everything else here scales with the
+	   editor font, so take the surrounding size rather than pinning a pixel. */
+	font-size: 1em;
 	line-height: 1;
 }
 
