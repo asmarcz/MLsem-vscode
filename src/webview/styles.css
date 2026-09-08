@@ -19,10 +19,8 @@ body {
 	--tk-border-soft: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
 	--tk-surface: color-mix(in srgb, var(--vscode-foreground) 3%, var(--vscode-editor-background));
 
-	/* Every boxed element shares one radius; the outer card is the deliberate
-	   exception, a step larger so it reads as the container. */
+	/* Every boxed element shares one radius. */
 	--tk-radius: 3px;
-	--tk-radius-card: 4px;
 
 	/* Anything showing a type signature uses the editor font at one size. */
 	--tk-code-font: var(--vscode-editor-font-family, monospace);
@@ -82,7 +80,7 @@ body {
 
 .tool-card {
 	border: 1px solid var(--tk-border);
-	border-radius: var(--tk-radius-card);
+	border-radius: var(--tk-radius);
 	padding: 12px;
 	background: var(--tk-surface);
 }
