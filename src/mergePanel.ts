@@ -40,7 +40,18 @@ interface InstantiatePreviewResult {
 	error?: string;
 }
 
-let panel: vscode.WebviewPanel | undefined;
+// The panel, with [postMessage] narrowed to our protocol. VS Code declares it
+// as postMessage(message: any), and an existing member cannot be narrowed by
+// module augmentation — an added overload merges alongside the `any` one and
+// changes nothing — so the member is replaced here instead. Narrowing the
+// variable rather than routing sends through a helper means there is no
+// untyped postMessage left in this file to reach for by accident.
+type TypedWebview = Omit<vscode.Webview, "postMessage"> & {
+	postMessage(message: ExtensionToWebview): Thenable<boolean>;
+};
+type TypedPanel = Omit<vscode.WebviewPanel, "webview"> & { webview: TypedWebview };
+
+let panel: TypedPanel | undefined;
 let currentUri: vscode.Uri | undefined;
 let currentPosition: vscode.Position | undefined;
 let client: LanguageClient | undefined;
@@ -89,14 +100,8 @@ async function fetchOverloads(uri: vscode.Uri, position: vscode.Position): Promi
 	});
 }
 
-// The single typed exit toward the webview. Everything the extension sends goes
-// through here, so a message the webview does not declare fails to compile.
-function post(message: ExtensionToWebview): void {
-	panel?.webview.postMessage(message);
-}
-
 function postOverloads(result: OverloadsResult): void {
-	post({
+	panel?.webview.postMessage({
 		type: "overloads",
 		found: result.found,
 		binding: { name: result.name, declared: result.declared },
@@ -220,7 +225,7 @@ export function openTypeToolkit(
 				overloadTexts: message.overloadTexts,
 				text: textOf(uri),
 			});
-			post({ type: "preview", ok: result.ok, text: result.text, error: result.error });
+			panel?.webview.postMessage({ type: "preview", ok: result.ok, text: result.text, error: result.error });
 		} else if (message.type === "apply") {
 			const uri = currentUri;
 			if (!uri) return;
@@ -233,7 +238,7 @@ export function openTypeToolkit(
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);
-			post({ type: "applied", error: applyError });
+			panel?.webview.postMessage({ type: "applied", error: applyError });
 		} else if (message.type === "requestInstantiatePreview") {
 			const uri = currentUri;
 			if (!uri) return;
@@ -245,7 +250,7 @@ export function openTypeToolkit(
 			});
 			// A stale preview is silently ignored (the next refresh reconciles);
 			// only forward a usable result or a genuine error.
-			post({
+			panel?.webview.postMessage({
 				type: "instantiatePreview",
 				ok: result.ok,
 				overloads: result.overloads,
@@ -263,7 +268,7 @@ export function openTypeToolkit(
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);
-			post({ type: "instantiated", error: applyError });
+			panel?.webview.postMessage({ type: "instantiated", error: applyError });
 		}
 	});
 
