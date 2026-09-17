@@ -160,8 +160,15 @@ function reducer(state: AppState, action: Action): AppState {
 		case "instantiated":
 			return { ...state, instantiate: withApplied(state.instantiate, action.error) };
 		default:
-			return state;
+			// Every action above is handled, so [action] is [never] here. Adding an
+			// action without a case makes this call a compile error pointing at the
+			// gap. Unreachable at runtime while the types hold.
+			return assertNever(action);
 	}
+}
+
+function assertNever(action: never): never {
+	throw new Error(`Unhandled action: ${JSON.stringify(action)}`);
 }
 
 function toAssignmentPairs(vars: Record<string, string>): Instantiation["assignments"] {
