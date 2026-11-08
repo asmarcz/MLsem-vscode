@@ -12,6 +12,11 @@
 	"main": "./dist/extension.js",
 	"activationEvents": [],
 	"contributes": {
+		"configurationDefaults": {
+			"[mlsem]": {
+				"editor.hover.above": false
+			}
+		},
 		"commands": [
 			{
 				"command": "mlsem.helloWorld",
