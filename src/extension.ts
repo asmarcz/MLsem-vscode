@@ -41,6 +41,17 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 	context.subscriptions.push(mergeDisposable);
 
+	const restartDisposable = vscode.commands.registerCommand("mlsem.restartServer", async () => {
+		if (!client) {
+			vscode.window.showErrorMessage("MLsem language server is not configured.");
+			return;
+		}
+		output.info("Restarting language server..");
+		await client.restart();
+		output.info("Language server restarted.");
+	});
+	context.subscriptions.push(restartDisposable);
+
 	const codeActionProvider = vscode.languages.registerCodeActionsProvider(
 		{ language: "mlsem" },
 		{

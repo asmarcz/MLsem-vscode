@@ -20,6 +20,10 @@
 			{
 				"command": "mlsem.typeToolkit",
 				"title": "MLsem: Type toolkit…"
+			},
+			{
+				"command": "mlsem.restartServer",
+				"title": "MLsem: Restart language server"
 			}
 		],
 		"configuration": {
