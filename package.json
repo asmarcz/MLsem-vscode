@@ -38,6 +38,12 @@
 						"string"
 					]
 				},
+				"mlsem.hover.overloadColors": {
+					"default": true,
+					"description": "In hovers of variables with several overloads, show a colour swatch per overload and tint the matching part of its `val` line in the editor while the hover is shown.",
+					"scope": "window",
+					"type": "boolean"
+				},
 				"mlsem.trace.server": {
 					"description": "Trace setting of the MLsem language server.",
 					"default": "off",

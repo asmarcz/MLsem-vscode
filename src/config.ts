@@ -14,6 +14,10 @@ export class Config {
 		return trace === "messages" || trace === "verbose";
 	}
 
+	get hoverOverloadColors(): boolean {
+		return this.cfg.get<boolean>("hover.overloadColors") ?? true;
+	}
+
 	get serverPath(): string | null {
 		// biome-ignore lint/style/noNonNullAssertion: Keep in sync with package.json.
 		return this.cfg.get<string | null>("server.path")!;

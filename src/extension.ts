@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 import { Config } from "./config";
 import { openTypeToolkit } from "./mergePanel";
+import { OverloadColors } from "./overloadColors";
 
 let client: LanguageClient | undefined;
 let traceOutputChannel: vscode.OutputChannel | undefined;
@@ -91,6 +92,24 @@ export async function activate(context: vscode.ExtensionContext) {
 	// client still writes to this channel while it shuts the server down.
 	traceOutputChannel = vscode.window.createOutputChannel("MLsem Language Server Trace");
 
+	const overloadColors = new OverloadColors(
+		() => client,
+		() => config.hoverOverloadColors,
+	);
+	context.subscriptions.push(overloadColors);
+
+	// The server reads the setting at initialization (it decides whether hovers
+	// show swatches), so a change restarts it.
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration(async (e) => {
+			if (e.affectsConfiguration("mlsem.hover.overloadColors") && client) {
+				overloadColors.clear();
+				output.info("Restarting language server for the new hover setting..");
+				await client.restart();
+			}
+		}),
+	);
+
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "mlsem" }],
 		outputChannelName: "MLsem Language Client",
@@ -100,6 +119,15 @@ export async function activate(context: vscode.ExtensionContext) {
 		},
 		// Hovers lay out overloads as an HTML table with code blocks in its cells.
 		markdown: { supportHtml: true },
+		// A function, so that a restart reads the current settings.
+		initializationOptions: () => ({ hoverOverloadColors: config.hoverOverloadColors }),
+		middleware: {
+			async provideHover(document, position, token, next) {
+				const hover = await next(document, position, token);
+				void overloadColors.afterHover(document, position);
+				return hover;
+			},
+		},
 	};
 	client = new LanguageClient("mlsem", "MLsem Language Client", serverOptions, clientOptions);
 
