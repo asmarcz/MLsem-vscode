@@ -4,10 +4,11 @@ import { Config } from "./config";
 import { openTypeToolkit } from "./mergePanel";
 
 let client: LanguageClient | undefined;
+let traceOutputChannel: vscode.OutputChannel | undefined;
+// Disposed at the end of deactivate, which still logs to it.
 const output = vscode.window.createOutputChannel("MLsem", { log: true });
 
 export async function activate(context: vscode.ExtensionContext) {
-	context.subscriptions.push(output);
 	output.info("Activating..");
 
 	const config = new Config();
@@ -86,8 +87,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	// https://stackoverflow.com/questions/52447872/how-to-enable-logs-for-language-server-in-visual-studio-code
 	// https://github.com/mun-lang/vscode-extension/blob/bbe1ebde2879ac4af853ad5f4bf43911c77a3c26/package.json#L88
 	// See package.json:mlsem.trace.server, this should propagate to the LSP $/setTrace.
-	const traceOutputChannel = vscode.window.createOutputChannel("MLsem Language Server Trace");
-	context.subscriptions.push(traceOutputChannel);
+	// Not in context.subscriptions: those are disposed before deactivate, and the
+	// client still writes to this channel while it shuts the server down.
+	traceOutputChannel = vscode.window.createOutputChannel("MLsem Language Server Trace");
 
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "mlsem" }],
@@ -111,6 +113,9 @@ export async function deactivate() {
 
 	await client?.dispose();
 	client = undefined;
+	traceOutputChannel?.dispose();
+	traceOutputChannel = undefined;
 
 	output.info("Deactivated.");
+	output.dispose();
 }
