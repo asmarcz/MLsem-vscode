@@ -98,6 +98,8 @@ export async function activate(context: vscode.ExtensionContext) {
 		synchronize: {
 			fileEvents: vscode.workspace.createFileSystemWatcher("**/*.mlsem"),
 		},
+		// Hovers lay out overloads as an HTML table with code blocks in its cells.
+		markdown: { supportHtml: true },
 	};
 	client = new LanguageClient("mlsem", "MLsem Language Client", serverOptions, clientOptions);
 
