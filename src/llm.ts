@@ -157,6 +157,47 @@ function feedback(errors: string[]) {
 	return `MLsem rejected these types:\n${errors.map((e) => `- ${e}`).join("\n")}\n\nAnswer again with only the val line(s).`;
 }
 
+// Token counts, as OpenAI-compatible servers report them in each answer's
+// usage. Cached and reasoning tokens are part of the prompt and completion
+// counts, and only some providers report them. [unreported] counts the
+// answers without usage, whose tokens are missing from the totals.
+interface Usage {
+	prompt: number;
+	completion: number;
+	cached: number;
+	reasoning: number;
+	unreported: number;
+}
+
+function newUsage(): Usage {
+	return { prompt: 0, completion: 0, cached: 0, reasoning: 0, unreported: 0 };
+}
+
+// Adds an answer's usage to [total], and returns the answer's own.
+function addUsage(total: Usage, u: OpenAI.CompletionUsage | undefined): Usage {
+	const one = newUsage();
+	if (u) {
+		one.prompt = u.prompt_tokens ?? 0;
+		one.completion = u.completion_tokens ?? 0;
+		one.cached = u.prompt_tokens_details?.cached_tokens ?? 0;
+		one.reasoning = u.completion_tokens_details?.reasoning_tokens ?? 0;
+	} else {
+		one.unreported = 1;
+	}
+	for (const k of Object.keys(one) as (keyof Usage)[]) total[k] += one[k];
+	return one;
+}
+
+function usageText(u: Usage): string {
+	const parts = [`${u.prompt} prompt tokens`];
+	if (u.cached > 0) parts.push(`${u.cached} of them cached`);
+	parts.push(`${u.completion} completion tokens`);
+	if (u.reasoning > 0) parts.push(`${u.reasoning} of them reasoning`);
+	const text = parts.join(", ");
+	if (u.unreported === 0) return text;
+	return `${text} (${u.unreported === 1 ? "1 answer" : `${u.unreported} answers`} reported no usage)`;
+}
+
 type Outcome =
 	| { kind: "cancelled" }
 	| { kind: "failed"; error: string }
@@ -220,6 +261,8 @@ export async function inferTypeWithLlm(
 	let tries = 0;
 	// What each answer proposed and what came of it, in order.
 	const attempts: LlmAttempt[] = [];
+	// Tokens of all answers, for comparing costs (logged, not shown).
+	const usage = newUsage();
 	running = true;
 	const outcome: Outcome = await vscode.window
 		.withProgress(
@@ -259,6 +302,10 @@ export async function inferTypeWithLlm(
 					try {
 						const completion = await openai.chat.completions.create({ model, messages }, { signal: abort.signal });
 						reply = completion.choices[0]?.message.content ?? "";
+						const tryUsage = addUsage(usage, completion.usage);
+						output.info(
+							`LLM try ${tries} tokens: ${completion.usage ? usageText(tryUsage) : "not reported by the server"}`,
+						);
 					} catch (e) {
 						if (token.isCancellationRequested) return { kind: "cancelled" };
 						return { kind: "failed", error: `The LLM request failed: ${e}` };
@@ -307,6 +354,11 @@ export async function inferTypeWithLlm(
 	running = false;
 
 	const after = triesText(tries);
+	output.info(`LLM: ${name} used ${usageText(usage)} in ${after} with ${model} of ${chosen.provider}`);
+	// One line per run, for grepping and comparing.
+	output.info(
+		`LLM usage ${JSON.stringify({ definition: name, provider: chosen.provider, model, tries, outcome: outcome.kind, ...usage })}`,
+	);
 	const report = (s: { ok: boolean; message: string; vals?: string[] }) =>
 		reportStatus({ state: "done", name, tries, attempts, ...s });
 	switch (outcome.kind) {
