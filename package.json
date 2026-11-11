@@ -86,6 +86,12 @@
 					"scope": "window",
 					"type": "integer"
 				},
+				"mlsem.llm.timeoutCountsAsFail": {
+					"default": true,
+					"description": "When an answer's type check times out: if on, it counts as a failed try and the LLM is asked again; if off, the inference stops there.",
+					"scope": "window",
+					"type": "boolean"
+				},
 				"mlsem.trace.server": {
 					"description": "Trace setting of the MLsem language server.",
 					"default": "off",

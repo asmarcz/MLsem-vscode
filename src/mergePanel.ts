@@ -1,6 +1,8 @@
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
+import { Config } from "./config";
+import { llmStatus, onLlmStatus } from "./llm";
 import type { ExtensionToWebview, WebviewToExtension } from "./protocol";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
@@ -113,25 +115,42 @@ function postOverloads(result: OverloadsResult): void {
 	});
 }
 
-// Re-fetch the current target and post the result, whatever it is — used for
-// explicit (re)opens and save-refreshes, where "no binding here" is useful
-// feedback.
-async function refreshCurrent(): Promise<void> {
-	if (!panel || !currentUri || !currentPosition) return;
-	const result = await fetchOverloads(currentUri, currentPosition);
-	if (result) postOverloads(result);
+// The top-level definition at [position], from the parse alone, so it is
+// found whether or not the definition typechecks. Undefined when there is
+// none (blank lines, comments, type definitions).
+async function definitionAt(uri: vscode.Uri, position: vscode.Position): Promise<string | undefined> {
+	if (!client) return undefined;
+	const result = await client.sendRequest<{ ok: boolean; name?: string }>("mlsem/definitionAt", {
+		textDocument: { uri: uri.toString() },
+		position: { line: position.line, character: position.character },
+		text: textOf(uri),
+	});
+	return result.ok ? result.name : undefined;
 }
 
-// Follow the editor cursor: retarget the open panel to the binding under
-// [position], but only when the server actually resolves one — so clicking
-// off a binding keeps the current panel content instead of blanking it.
+// Re-fetch the panel's target and post it to every tool, whatever it is —
+// used for explicit (re)opens and refreshes, where "nothing here" is useful
+// feedback. The overload tools get the binding's overloads, or "not found"
+// when the definition does not typecheck; the LLM tool gets its name.
+async function refreshCurrent(): Promise<void> {
+	if (!panel || !currentUri || !currentPosition) return;
+	const [name, overloads] = await Promise.all([
+		definitionAt(currentUri, currentPosition),
+		fetchOverloads(currentUri, currentPosition),
+	]);
+	panel?.webview.postMessage({ type: "target", name: name ?? null });
+	if (overloads) postOverloads(overloads);
+}
+
+// Follow the editor cursor: retarget the panel to the definition under
+// [position], typeable or not, but only when there is one, so clicking off a
+// definition keeps the current panel content instead of blanking it.
 async function followCursor(uri: vscode.Uri, position: vscode.Position): Promise<void> {
 	if (!panel) return;
-	const result = await fetchOverloads(uri, position);
-	if (!result?.found) return;
+	if ((await definitionAt(uri, position)) === undefined) return;
 	currentUri = uri;
 	currentPosition = position;
-	postOverloads(result);
+	await refreshCurrent();
 }
 
 export function openTypeToolkit(
@@ -167,8 +186,8 @@ export function openTypeToolkit(
 	});
 
 	// While the panel is open, follow the cursor in any MLsem editor so that
-	// clicking a binding loads its overloads. Debounced so drag-selection and
-	// rapid caret moves don't spam the server.
+	// clicking a definition loads it into every tool. Debounced so
+	// drag-selection and rapid caret moves don't spam the server.
 	const selectionSubscription = vscode.window.onDidChangeTextEditorSelection((event) => {
 		if (event.textEditor.document.languageId !== "mlsem") return;
 		const position = event.selections[0]?.active;
@@ -209,11 +228,40 @@ export function openTypeToolkit(
 		return result.error;
 	}
 
+	const config = new Config();
+	function postLlmSettings() {
+		panel?.webview.postMessage({
+			type: "llmSettings",
+			settings: {
+				model: config.llmModel,
+				baseUrl: config.llmBaseUrl,
+				maxTries: config.llmMaxTries,
+				timeoutCountsAsFail: config.llmTimeoutCountsAsFail,
+			},
+		});
+	}
+	const llmSubscriptions = [
+		onLlmStatus((status) => panel?.webview.postMessage({ type: "llmStatus", status })),
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration("mlsem.llm")) postLlmSettings();
+		}),
+	];
+
 	panel.webview.onDidReceiveMessage(async (message: WebviewToExtension) => {
 		if (!panel || !client) return;
 
 		if (message.type === "ready") {
+			postLlmSettings();
+			panel.webview.postMessage({ type: "llmStatus", status: llmStatus() });
 			await refreshCurrent();
+		} else if (message.type === "inferWithLlm") {
+			if (!currentUri || !currentPosition) return;
+			await vscode.commands.executeCommand("mlsem.inferTypeWithLlm", currentUri, currentPosition);
+			await refreshCurrent();
+		} else if (message.type === "setTimeoutCountsAsFail") {
+			await config.setLlmTimeoutCountsAsFail(message.value);
+		} else if (message.type === "openLlmSettings") {
+			await vscode.commands.executeCommand("workbench.action.openSettings", "mlsem.llm");
 		} else if (message.type === "requestPreview") {
 			// Snapshot the target so cursor-follow retargeting mid-request can't
 			// switch which document/binding this reply refers to.
@@ -275,6 +323,7 @@ export function openTypeToolkit(
 	panel.onDidDispose(() => {
 		saveSubscription.dispose();
 		selectionSubscription.dispose();
+		for (const s of llmSubscriptions) s.dispose();
 		if (followTimer) clearTimeout(followTimer);
 		followTimer = undefined;
 		panel = undefined;

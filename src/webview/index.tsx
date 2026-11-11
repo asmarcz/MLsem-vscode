@@ -1,11 +1,14 @@
-import { render } from "preact";
+import { type ComponentChildren, render } from "preact";
 import { useEffect, useReducer, useRef } from "preact/hooks";
 import {
 	type Binding,
 	type ExtensionToWebview,
 	type Instantiation,
 	isFromExtension,
+	type LlmSettings,
+	type LlmStatus,
 	type Overload,
+	triesText,
 	type WebviewToExtension,
 } from "../protocol";
 import css from "./styles.css";
@@ -49,10 +52,21 @@ interface AppState {
 	merge: ToolState<string>;
 	assignments: Assignments;
 	instantiate: ToolState<string[]>;
+	llmSettings: LlmSettings | null;
+	llmStatus: LlmStatus;
+	// The definition every tool works on, typeable or not; null when the
+	// panel's target is not in a definition. When it typechecks, [binding] is
+	// its binding.
+	target: string | null;
+	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
+	collapsed: Record<SectionId, boolean>;
 }
+
+type SectionId = "merge" | "instantiate" | "llm";
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
+	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
 	| { type: "APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
@@ -68,6 +82,10 @@ const initialState: AppState = {
 	merge: initialToolState,
 	assignments: {},
 	instantiate: initialToolState,
+	llmSettings: null,
+	llmStatus: { state: "idle" },
+	target: null,
+	collapsed: { merge: false, instantiate: false, llm: false },
 };
 
 // Drop assignment entries for overloads that no longer exist; report whether
@@ -102,10 +120,16 @@ function reducer(state: AppState, action: Action): AppState {
 	switch (action.type) {
 		case "overloads": {
 			if (!action.found) {
+				// The LLM section and the collapsed sections do not depend on the
+				// binding.
 				return {
 					...initialState,
 					found: false,
 					binding: action.binding,
+					llmSettings: state.llmSettings,
+					llmStatus: state.llmStatus,
+					target: state.target,
+					collapsed: state.collapsed,
 				};
 			}
 			const sameBinding = state.found && state.binding?.name === action.binding?.name;
@@ -131,6 +155,14 @@ function reducer(state: AppState, action: Action): AppState {
 				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
 			};
 		}
+		case "TOGGLE_SECTION":
+			return { ...state, collapsed: { ...state.collapsed, [action.id]: !state.collapsed[action.id] } };
+		case "llmSettings":
+			return { ...state, llmSettings: action.settings };
+		case "llmStatus":
+			return { ...state, llmStatus: action.status };
+		case "target":
+			return { ...state, target: action.name };
 		case "TOGGLE": {
 			const t = action.text;
 			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
@@ -262,8 +294,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	}
 
 	return (
-		<section class="tool-card">
-			<p class="tool-title">Merge overloads</p>
+		<>
 			<p class="note tool-subtitle">Combine selected overloads into a single declared type.</p>
 			{merge.error && <p class="error-note">{merge.error}</p>}
 			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
@@ -321,7 +352,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					/>
 				</div>
 			</div>
-		</section>
+		</>
 	);
 }
 
@@ -376,8 +407,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	}
 
 	return (
-		<section class="tool-card">
-			<p class="tool-title">Instantiate type variables</p>
+		<>
 			<p class="note tool-subtitle">
 				Pin a type variable to a concrete type, per overload. Variables are independent across overloads.
 			</p>
@@ -485,13 +515,150 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 					onInsert={() => handleApply(true, assignedTexts)}
 				/>
 			</div>
+		</>
+	);
+}
+
+// A collapsible section in the style of VS Code's view panes: a full-width
+// header with a chevron and an uppercase title, and the body below it.
+function Section({
+	id,
+	title,
+	state,
+	dispatch,
+	children,
+}: {
+	id: SectionId;
+	title: string;
+	state: AppState;
+	dispatch: (a: Action) => void;
+	children: ComponentChildren;
+}) {
+	const expanded = !state.collapsed[id];
+	return (
+		<section class={expanded ? "pane expanded" : "pane"}>
+			<h2 class="pane-header">
+				<button
+					type="button"
+					class="pane-toggle"
+					aria-expanded={expanded}
+					aria-controls={`pane-${id}`}
+					onClick={() => dispatch({ type: "TOGGLE_SECTION", id })}
+				>
+					<svg class="pane-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+						<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" />
+					</svg>
+					{title}
+				</button>
+			</h2>
+			{expanded && (
+				<div class="pane-body" id={`pane-${id}`}>
+					{children}
+				</div>
+			)}
 		</section>
+	);
+}
+
+function LlmStatusView({ status }: { status: LlmStatus }) {
+	switch (status.state) {
+		case "idle":
+			return null;
+		case "running":
+			return (
+				<p class="note llm-status" aria-live="polite">
+					Inferring the type of <code>{status.name}</code>: try {status.tries} of {status.maxTries}…
+				</p>
+			);
+		case "done":
+			return (
+				<div class="llm-result" aria-live="polite">
+					{status.ok ? (
+						<p class="llm-ok">
+							Found a type of <code>{status.name}</code> that checks after <strong>{triesText(status.tries)}</strong>.
+						</p>
+					) : (
+						<p class="error-note">{status.message}</p>
+					)}
+					{status.vals && status.vals.length > 0 && (
+						<div class="surface code-text preview-block preview-lines">
+							{status.vals.map((v, i) => (
+								<div key={i}>{v}</div>
+							))}
+						</div>
+					)}
+				</div>
+			);
+	}
+}
+
+function LlmTool({ state }: { state: AppState }) {
+	const settings = state.llmSettings;
+	const running = state.llmStatus.state === "running";
+	const name = state.target;
+	return (
+		<>
+			<p class="note tool-subtitle">
+				Ask an LLM for the <code>val</code> lines of the definition, and check them. Rejected answers are sent back with
+				the type errors.
+			</p>
+			{settings && (
+				<p class="llm-settings">
+					{settings.model ? (
+						<>
+							<code>{settings.model}</code> at <code>{settings.baseUrl}</code>, up to {settings.maxTries} tries.
+						</>
+					) : (
+						"No model is set."
+					)}{" "}
+					<button type="button" class="link" onClick={() => vscodeApi.postMessage({ type: "openLlmSettings" })}>
+						Settings
+					</button>
+				</p>
+			)}
+			<label class="toggle">
+				<input
+					type="checkbox"
+					checked={settings?.timeoutCountsAsFail ?? true}
+					disabled={!settings}
+					onChange={(e) =>
+						vscodeApi.postMessage({
+							type: "setTimeoutCountsAsFail",
+							value: (e.target as HTMLInputElement).checked,
+						})
+					}
+				/>
+				<span>
+					Count timeouts as failed tries
+					<span class="note toggle-hint">
+						When on, an answer whose type check times out is sent back to the LLM like any rejected answer. When off,
+						the inference stops at the first timeout.
+					</span>
+				</span>
+			</label>
+			<div class="btn-row">
+				<button
+					type="button"
+					class="btn btn-primary"
+					disabled={running || !settings?.model || !name}
+					onClick={() => vscodeApi.postMessage({ type: "inferWithLlm" })}
+				>
+					{running ? "Inferring…" : name ? `Infer type of ${name}` : "Infer type"}
+				</button>
+			</div>
+			{!name && <p class="note note-absent">Put the cursor in a top-level definition.</p>}
+			<LlmStatusView status={state.llmStatus} />
+		</>
 	);
 }
 
 function App() {
 	// Lazy init, so the restore runs once instead of on every render.
-	const [state, dispatch] = useReducer(reducer, initialState, (fallback) => vscodeApi.getState() ?? fallback);
+	// Saved by an older version, the state may lack newer fields.
+	const [state, dispatch] = useReducer(reducer, initialState, (fallback) => ({
+		...fallback,
+		...vscodeApi.getState(),
+	}));
 
 	useEffect(() => {
 		vscodeApi.setState(state);
@@ -515,21 +682,30 @@ function App() {
 		return () => window.removeEventListener("message", handler);
 	}, []);
 
-	if (!state.found) {
-		return (
-			<>
-				<style>{css}</style>
-				<p class="note note-absent not-found">No overloads found at this position.</p>
-			</>
-		);
-	}
-
+	const notFound = (
+		<p class="note note-absent">
+			{state.target ? (
+				<>
+					<code>{state.target}</code> does not typecheck, so it has no overloads.
+				</>
+			) : (
+				"Put the cursor in a top-level definition."
+			)}
+		</p>
+	);
 	return (
 		<>
 			<style>{css}</style>
 			<div class="dashboard">
-				<MergeTool state={state} dispatch={dispatch} />
-				<InstantiateTool state={state} dispatch={dispatch} />
+				<Section id="merge" title="Merge overloads" state={state} dispatch={dispatch}>
+					{state.found ? <MergeTool state={state} dispatch={dispatch} /> : notFound}
+				</Section>
+				<Section id="instantiate" title="Instantiate type variables" state={state} dispatch={dispatch}>
+					{state.found ? <InstantiateTool state={state} dispatch={dispatch} /> : notFound}
+				</Section>
+				<Section id="llm" title="Infer type with LLM" state={state} dispatch={dispatch}>
+					<LlmTool state={state} />
+				</Section>
 			</div>
 		</>
 	);

@@ -30,6 +30,14 @@ export class Config {
 		return Math.max(1, this.cfg.get<number>("llm.maxTries") ?? 5);
 	}
 
+	get llmTimeoutCountsAsFail(): boolean {
+		return this.cfg.get<boolean>("llm.timeoutCountsAsFail") ?? true;
+	}
+
+	setLlmTimeoutCountsAsFail(value: boolean) {
+		return this.cfg.update("llm.timeoutCountsAsFail", value, vscode.ConfigurationTarget.Global);
+	}
+
 	get serverPath(): string | null {
 		// biome-ignore lint/style/noNonNullAssertion: Keep in sync with package.json.
 		return this.cfg.get<string | null>("server.path")!;

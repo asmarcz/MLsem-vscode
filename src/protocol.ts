@@ -26,6 +26,32 @@ export interface Instantiation {
 	assignments: { var: string; type: string }[];
 }
 
+// Progress of the LLM type inference, whichever way it was started. [tries]
+// counts the answers asked for so far.
+export type LlmStatus =
+	| { state: "idle" }
+	| { state: "running"; name: string; tries: number; maxTries: number }
+	| {
+			state: "done";
+			ok: boolean;
+			name: string;
+			tries: number;
+			message: string;
+			// The val lines found, or those whose check timed out.
+			vals?: string[];
+	  };
+
+export function triesText(tries: number) {
+	return tries === 1 ? "1 try" : `${tries} tries`;
+}
+
+export interface LlmSettings {
+	model: string;
+	baseUrl: string;
+	maxTries: number;
+	timeoutCountsAsFail: boolean;
+}
+
 export type ExtensionToWebview =
 	| {
 			type: "overloads";
@@ -38,10 +64,20 @@ export type ExtensionToWebview =
 	| { type: "preview"; ok: boolean; text?: string; error?: string }
 	| { type: "applied"; error?: string }
 	| { type: "instantiatePreview"; ok: boolean; overloads?: string[]; error?: string }
-	| { type: "instantiated"; error?: string };
+	| { type: "instantiated"; error?: string }
+	| { type: "llmStatus"; status: LlmStatus }
+	| { type: "llmSettings"; settings: LlmSettings }
+	// The name of the definition every tool works on, found from the parse so
+	// that it may not typecheck; null when the target is not in a definition.
+	// Sent before the target's "overloads".
+	| { type: "target"; name: string | null };
 
 export type WebviewToExtension =
 	| { type: "ready" }
+	// Run the LLM type inference on the panel's current target.
+	| { type: "inferWithLlm" }
+	| { type: "setTimeoutCountsAsFail"; value: boolean }
+	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[] }
 	// [append]: add the result as new declaration line(s) instead of replacing.
 	// [keepOthers]: on replace, keep the unselected overloads (scoped Apply)
@@ -66,6 +102,9 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	applied: true,
 	instantiatePreview: true,
 	instantiated: true,
+	llmStatus: true,
+	llmSettings: true,
+	target: true,
 };
 
 // The extension host is a separate process, so what arrives over postMessage is

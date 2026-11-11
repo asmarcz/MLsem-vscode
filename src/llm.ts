@@ -14,6 +14,7 @@ import OpenAI from "openai";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import type { Config } from "./config";
+import { type LlmStatus, triesText } from "./protocol";
 
 const API_KEY = "mlsem.llm.apiKey";
 
@@ -22,7 +23,8 @@ interface Range {
 	end: { line: number; character: number };
 }
 
-type DefinitionAt = { ok: true; name: string; definition: string; source: string } | { ok: false; error: string };
+// [line] is the definition's first line, 0-based.
+type DefinitionAt = { ok: true; name: string; definition: string; line: number } | { ok: false; error: string };
 
 type CheckResult =
 	| { ok: true; edit: { range: Range; newText: string } }
@@ -43,6 +45,17 @@ Type syntax:
 - an intersection of arrows is an overloaded function, e.g. '(int -> int) & (bool -> bool)'
 
 Use the types defined in the file. Give the most precise type that the definition satisfies.`;
+
+// Every run reports here, wherever it was started from, so the type toolkit
+// can show it.
+const statusEmitter = new vscode.EventEmitter<LlmStatus>();
+export const onLlmStatus = statusEmitter.event;
+let lastStatus: LlmStatus = { state: "idle" };
+export const llmStatus = () => lastStatus;
+function report(status: LlmStatus) {
+	lastStatus = status;
+	statusEmitter.fire(status);
+}
 
 export async function setApiKey(context: vscode.ExtensionContext) {
 	const key = await vscode.window.showInputBox({
@@ -75,6 +88,17 @@ function feedback(errors: string[]) {
 	return `MLsem rejected these types:\n${errors.map((e) => `- ${e}`).join("\n")}\n\nAnswer again with only the val line(s).`;
 }
 
+type Outcome =
+	| { kind: "cancelled" }
+	| { kind: "failed"; error: string }
+	| { kind: "exhausted"; errors: string[] }
+	// A check timed out and timeouts do not count as failed tries: the run
+	// stops there instead of asking again.
+	| { kind: "timedOut"; vals: string[] }
+	| { kind: "ok"; types: string[]; edit: { range: Range; newText: string } };
+
+let running = false;
+
 export async function inferTypeWithLlm(
 	context: vscode.ExtensionContext,
 	client: LanguageClient,
@@ -83,6 +107,10 @@ export async function inferTypeWithLlm(
 	uri?: vscode.Uri,
 	position?: vscode.Position,
 ) {
+	if (running) {
+		vscode.window.showWarningMessage("MLsem: the LLM is already inferring a type.");
+		return;
+	}
 	const editor = vscode.window.activeTextEditor;
 	const document = uri ? await vscode.workspace.openTextDocument(uri) : editor?.document;
 	const pos = position ?? editor?.selection.active;
@@ -107,87 +135,113 @@ export async function inferTypeWithLlm(
 		vscode.window.showErrorMessage(def.error);
 		return;
 	}
+	const name = def.name;
 
 	// The SDK refuses an empty key; local servers ignore whatever is sent.
 	const openai = new OpenAI({ baseURL: config.llmBaseUrl, apiKey: key || "none" });
 	const maxTries = config.llmMaxTries;
+	const timeoutCountsAsFail = config.llmTimeoutCountsAsFail;
 	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
 		{ role: "system", content: SYSTEM_PROMPT },
 		{
 			role: "user",
-			content: `Here is the file up to the definition of \`${def.name}\`:\n\n${def.source}\n\nWrite the val line(s) for \`${def.name}\`.`,
+			// The whole file: a definition may use later ones that have a val.
+			content: `Here is the file:\n\n${text}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}`,
 		},
 	];
-	output.info(`LLM: inferring the type of ${def.name} with ${model} at ${config.llmBaseUrl}`);
+	output.info(`LLM: inferring the type of ${name} with ${model} at ${config.llmBaseUrl}`);
 
-	const outcome = await vscode.window.withProgress(
-		{
-			location: vscode.ProgressLocation.Notification,
-			title: `MLsem: inferring the type of ${def.name}`,
-			cancellable: true,
-		},
-		async (progress, token) => {
-			const abort = new AbortController();
-			token.onCancellationRequested(() => abort.abort());
-			let errors: string[] = [];
-			for (let tries = 1; tries <= maxTries; tries++) {
-				progress.report({ message: `try ${tries} of ${maxTries}` });
-				let reply: string;
-				try {
-					const completion = await openai.chat.completions.create({ model, messages }, { signal: abort.signal });
-					reply = completion.choices[0]?.message.content ?? "";
-				} catch (e) {
-					if (token.isCancellationRequested) return { kind: "cancelled" as const };
-					return { kind: "failed" as const, tries, error: `The LLM request failed: ${e}` };
-				}
-				messages.push({ role: "assistant", content: reply });
-				output.info(`LLM try ${tries}: ${reply.trim()}`);
-
-				const types = parseVals(reply, def.name);
-				if (types.length === 0) {
-					errors = [`The answer has no line of the form \`val ${def.name} : TYPE\`.`];
-				} else {
-					let check: CheckResult;
+	let tries = 0;
+	running = true;
+	const outcome: Outcome = await vscode.window
+		.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: `MLsem: inferring the type of ${name}`,
+				cancellable: true,
+			},
+			async (progress, token): Promise<Outcome> => {
+				const abort = new AbortController();
+				token.onCancellationRequested(() => abort.abort());
+				let errors: string[] = [];
+				while (tries < maxTries) {
+					tries++;
+					progress.report({ message: `try ${tries} of ${maxTries}` });
+					report({ state: "running", name, tries, maxTries });
+					let reply: string;
 					try {
-						check = await client.sendRequest<CheckResult>("mlsem/checkSignature", { ...at, types });
+						const completion = await openai.chat.completions.create({ model, messages }, { signal: abort.signal });
+						reply = completion.choices[0]?.message.content ?? "";
 					} catch (e) {
-						// The server gives up on a check that takes too long.
-						check = { ok: false, errors: [`Type checking against these types did not finish: ${e}`] };
+						if (token.isCancellationRequested) return { kind: "cancelled" };
+						return { kind: "failed", error: `The LLM request failed: ${e}` };
 					}
-					if (token.isCancellationRequested) return { kind: "cancelled" as const };
-					if (check.ok) return { kind: "ok" as const, tries, types, edit: check.edit };
-					errors = check.errors ?? [check.error ?? "The definition does not check."];
-				}
-				output.info(`LLM try ${tries} rejected:\n${errors.join("\n")}`);
-				messages.push({ role: "user", content: feedback(errors) });
-			}
-			return { kind: "exhausted" as const, tries: maxTries, errors };
-		},
-	);
+					messages.push({ role: "assistant", content: reply });
+					output.info(`LLM try ${tries}: ${reply.trim()}`);
 
-	const tries = (n: number) => (n === 1 ? "1 try" : `${n} tries`);
+					const types = parseVals(reply, name);
+					if (types.length === 0) {
+						errors = [`The answer has no line of the form \`val ${name} : TYPE\`.`];
+					} else {
+						let check: CheckResult;
+						try {
+							check = await client.sendRequest<CheckResult>("mlsem/checkSignature", { ...at, types });
+						} catch (e) {
+							// The server gives up on a check that takes too long.
+							if (/timed out/i.test(String(e)) && !timeoutCountsAsFail) {
+								if (token.isCancellationRequested) return { kind: "cancelled" };
+								return { kind: "timedOut", vals: types.map((t) => `val ${name} : ${t}`) };
+							}
+							check = { ok: false, errors: [`Type checking against these types did not finish: ${e}`] };
+						}
+						if (token.isCancellationRequested) return { kind: "cancelled" };
+						if (check.ok) return { kind: "ok", types, edit: check.edit };
+						errors = check.errors ?? [check.error ?? "The definition does not check."];
+					}
+					output.info(`LLM try ${tries} rejected:\n${errors.join("\n")}`);
+					messages.push({ role: "user", content: feedback(errors) });
+				}
+				return { kind: "exhausted", errors };
+			},
+		)
+		.then(
+			(o) => o,
+			(e): Outcome => ({ kind: "failed", error: String(e) }),
+		);
+	running = false;
+
+	const after = triesText(tries);
 	switch (outcome.kind) {
 		case "cancelled":
 			output.info("LLM: cancelled");
+			report({ state: "done", ok: false, name, tries, message: "Cancelled." });
 			return;
 		case "failed":
 			output.error(outcome.error);
+			report({ state: "done", ok: false, name, tries, message: outcome.error });
 			vscode.window.showErrorMessage(`MLsem: ${outcome.error}`);
 			return;
+		case "timedOut": {
+			const message = `Type checking the answer of try ${tries} timed out, so the inference of ${name} stopped there.`;
+			output.warn(`LLM: ${message} ${outcome.vals.join(" ; ")}`);
+			report({ state: "done", ok: false, name, tries, message, vals: outcome.vals });
+			vscode.window.showWarningMessage(`MLsem: ${message}`);
+			return;
+		}
 		case "exhausted": {
-			output.warn(`LLM: no type of ${def.name} checked after ${tries(outcome.tries)}`);
-			const show = await vscode.window.showWarningMessage(
-				`MLsem: the LLM found no type of ${def.name} that checks after ${tries(outcome.tries)}. Last error: ${outcome.errors[0] ?? ""}`,
-				"Show log",
-			);
+			const message = `No type of ${name} checked after ${after}. Last error: ${outcome.errors[0] ?? ""}`;
+			output.warn(`LLM: ${message}`);
+			report({ state: "done", ok: false, name, tries, message });
+			const show = await vscode.window.showWarningMessage(`MLsem: ${message}`, "Show log");
 			if (show) output.show();
 			return;
 		}
 		case "ok": {
+			const vals = outcome.types.map((t) => `val ${name} : ${t}`);
 			if (document.version !== version) {
-				vscode.window.showWarningMessage(
-					`MLsem: the file changed while the type of ${def.name} was inferred, so it was not inserted. Found after ${tries(outcome.tries)}: ${outcome.types.map((t) => `val ${def.name} : ${t}`).join(" ; ")}`,
-				);
+				const message = `The file changed while the type of ${name} was inferred, so it was not inserted. Found after ${after}: ${vals.join(" ; ")}`;
+				report({ state: "done", ok: false, name, tries, message, vals });
+				vscode.window.showWarningMessage(`MLsem: ${message}`);
 				return;
 			}
 			const { start, end } = outcome.edit.range;
@@ -198,10 +252,10 @@ export async function inferTypeWithLlm(
 				outcome.edit.newText,
 			);
 			await vscode.workspace.applyEdit(edit);
-			output.info(`LLM: ${def.name} checks after ${tries(outcome.tries)}`);
-			vscode.window.showInformationMessage(
-				`MLsem: the LLM found a type of ${def.name} that checks after ${tries(outcome.tries)}.`,
-			);
+			const message = `The LLM found a type of ${name} that checks after ${after}.`;
+			output.info(`LLM: ${message}`);
+			report({ state: "done", ok: true, name, tries, message, vals });
+			vscode.window.showInformationMessage(`MLsem: ${message}`);
 		}
 	}
 }
