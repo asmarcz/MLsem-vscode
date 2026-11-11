@@ -45,12 +45,18 @@ export function triesText(tries: number) {
 	return tries === 1 ? "1 try" : `${tries} tries`;
 }
 
+// A model of a provider of mlsem.llm.providers.
+export interface LlmModel {
+	provider: string;
+	model: string;
+}
+
 export interface LlmSettings {
-	// The models of mlsem.llm.models, and the one chosen (undefined when there
-	// are none).
-	models: string[];
-	model?: string;
-	baseUrl: string;
+	// The models of all providers, in order, and the one chosen with its
+	// provider's base URL (undefined when there are none).
+	models: LlmModel[];
+	model?: LlmModel;
+	baseUrl?: string;
 	maxTries: number;
 	timeoutCountsAsFail: boolean;
 }
@@ -83,7 +89,7 @@ export type WebviewToExtension =
 	// Run the LLM type inference on the panel's current target.
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
-	| { type: "selectModel"; model: string }
+	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[] }
 	// [append]: add the result as new declaration line(s) instead of replacing.

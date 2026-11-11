@@ -14,9 +14,7 @@ import OpenAI from "openai";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import type { Config } from "./config";
-import { type LlmStatus, triesText } from "./protocol";
-
-const API_KEY = "mlsem.llm.apiKey";
+import { type LlmModel, type LlmStatus, triesText } from "./protocol";
 
 interface Range {
 	start: { line: number; character: number };
@@ -86,34 +84,62 @@ function report(status: LlmStatus) {
 	statusEmitter.fire(status);
 }
 
-export async function setApiKey(context: vscode.ExtensionContext) {
+// Each provider's API key, in VS Code's secret storage.
+const apiKeySecret = (provider: string) => `mlsem.llm.apiKey/${provider}`;
+
+// Ask for and store the API key of [provider], or of a provider picked from
+// mlsem.llm.providers.
+export async function setApiKey(context: vscode.ExtensionContext, config: Config, provider?: string) {
+	let name = provider;
+	if (name === undefined) {
+		const names = config.llmProviders.map((p) => p.name);
+		if (names.length === 0) {
+			vscode.window.showErrorMessage("Add a provider to mlsem.llm.providers first.");
+			return undefined;
+		}
+		name = names.length === 1 ? names[0] : await vscode.window.showQuickPick(names, { title: "MLsem: LLM provider" });
+		if (name === undefined) return undefined;
+	}
 	const key = await vscode.window.showInputBox({
-		title: "MLsem: LLM API key",
-		prompt: "API key for the endpoint in mlsem.llm.baseUrl. Leave empty for a local server that needs none.",
+		title: `MLsem: API key of ${name}`,
+		prompt: "Leave empty for a local server that needs none.",
 		password: true,
 		ignoreFocusOut: true,
 	});
 	if (key === undefined) return undefined;
-	await context.secrets.store(API_KEY, key);
+	await context.secrets.store(apiKeySecret(name), key);
 	return key;
 }
 
-async function apiKey(context: vscode.ExtensionContext) {
-	return (await context.secrets.get(API_KEY)) ?? (await setApiKey(context));
+async function apiKey(context: vscode.ExtensionContext, config: Config, provider: string) {
+	return (await context.secrets.get(apiKeySecret(provider))) ?? (await setApiKey(context, config, provider));
 }
 
 // The model chosen in the type toolkit, kept for the user across sessions
-// and workspaces. When it is no longer in mlsem.llm.models, the first one.
+// and workspaces. When it is no longer among the providers' models, the
+// first one.
 const SELECTED_MODEL = "mlsem.llm.selectedModel";
 
-export function selectedModel(context: vscode.ExtensionContext, config: Config): string | undefined {
-	const models = config.llmModels;
-	const chosen = context.globalState.get<string>(SELECTED_MODEL);
-	return chosen !== undefined && models.includes(chosen) ? chosen : models[0];
+export function allModels(config: Config): LlmModel[] {
+	return config.llmProviders.flatMap((p) => p.models.map((model) => ({ provider: p.name, model })));
 }
 
-export function selectModel(context: vscode.ExtensionContext, model: string) {
-	return context.globalState.update(SELECTED_MODEL, model);
+export function selectedModel(
+	context: vscode.ExtensionContext,
+	config: Config,
+): (LlmModel & { baseUrl: string }) | undefined {
+	const providers = config.llmProviders;
+	const chosen = context.globalState.get<LlmModel>(SELECTED_MODEL);
+	const found =
+		chosen && providers.find((p) => p.name === chosen.provider && p.models.includes(chosen.model)) && chosen;
+	const model = found || allModels(config)[0];
+	if (!model) return undefined;
+	const provider = providers.find((p) => p.name === model.provider);
+	return provider && { provider: model.provider, model: model.model, baseUrl: provider.baseUrl };
+}
+
+export function selectModel(context: vscode.ExtensionContext, model: LlmModel) {
+	return context.globalState.update(SELECTED_MODEL, { provider: model.provider, model: model.model });
 }
 
 // The type part of each `val` line of [name] in [reply]. Lines for other names
@@ -161,13 +187,17 @@ export async function inferTypeWithLlm(
 		vscode.window.showErrorMessage("Put the cursor in a definition of an MLsem file.");
 		return;
 	}
-	const model = selectedModel(context, config);
-	if (!model) {
-		const open = await vscode.window.showErrorMessage("Add the models to use to mlsem.llm.models.", "Open settings");
+	const chosen = selectedModel(context, config);
+	if (!chosen) {
+		const open = await vscode.window.showErrorMessage(
+			"Add a provider with models to mlsem.llm.providers.",
+			"Open settings",
+		);
 		if (open) vscode.commands.executeCommand("workbench.action.openSettings", "mlsem.llm");
 		return;
 	}
-	const key = await apiKey(context);
+	const { model, baseUrl } = chosen;
+	const key = await apiKey(context, config, chosen.provider);
 	if (key === undefined) return;
 
 	const text = document.getText();
@@ -181,11 +211,11 @@ export async function inferTypeWithLlm(
 	const name = def.name;
 
 	// The SDK refuses an empty key; local servers ignore whatever is sent.
-	const openai = new OpenAI({ baseURL: config.llmBaseUrl, apiKey: key || "none" });
+	const openai = new OpenAI({ baseURL: baseUrl, apiKey: key || "none" });
 	const maxTries = config.llmMaxTries;
 	const timeoutCountsAsFail = config.llmTimeoutCountsAsFail;
 	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [{ role: "system", content: SYSTEM_PROMPT }];
-	output.info(`LLM: inferring the type of ${name} with ${model} at ${config.llmBaseUrl}`);
+	output.info(`LLM: inferring the type of ${name} with ${model} of ${chosen.provider} at ${baseUrl}`);
 
 	let tries = 0;
 	running = true;

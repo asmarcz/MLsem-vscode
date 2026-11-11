@@ -606,18 +606,31 @@ function LlmTool({ state }: { state: AppState }) {
 			{settings && settings.models.length > 0 && (
 				<label class="llm-model">
 					<span>Model</span>
+					{/* Options are keyed by their index in settings.models, grouped by
+					    provider since two providers may offer the same model. */}
 					<select
 						class="select"
-						value={settings.model}
+						value={String(
+							settings.models.findIndex(
+								(m) => m.provider === settings.model?.provider && m.model === settings.model?.model,
+							),
+						)}
 						disabled={running}
-						onChange={(e) =>
-							vscodeApi.postMessage({ type: "selectModel", model: (e.target as HTMLSelectElement).value })
-						}
+						onChange={(e) => {
+							const model = settings.models[Number((e.target as HTMLSelectElement).value)];
+							if (model) vscodeApi.postMessage({ type: "selectModel", model });
+						}}
 					>
-						{settings.models.map((m) => (
-							<option key={m} value={m}>
-								{m}
-							</option>
+						{[...new Set(settings.models.map((m) => m.provider))].map((provider) => (
+							<optgroup key={provider} label={provider}>
+								{settings.models.map((m, i) =>
+									m.provider === provider ? (
+										<option key={i} value={String(i)}>
+											{m.model}
+										</option>
+									) : null,
+								)}
+							</optgroup>
 						))}
 					</select>
 				</label>
@@ -626,10 +639,10 @@ function LlmTool({ state }: { state: AppState }) {
 				<p class="llm-settings">
 					{settings.models.length > 0 ? (
 						<>
-							At <code>{settings.baseUrl}</code>, up to {settings.maxTries} tries.
+							{settings.model?.provider} at <code>{settings.baseUrl}</code>, up to {settings.maxTries} tries.
 						</>
 					) : (
-						"No models are set."
+						"No providers with models are set."
 					)}{" "}
 					<button type="button" class="link" onClick={() => vscodeApi.postMessage({ type: "openLlmSettings" })}>
 						Settings

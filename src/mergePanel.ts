@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
-import { llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
+import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
 import type { ExtensionToWebview, WebviewToExtension } from "./protocol";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
@@ -256,12 +256,13 @@ export function openTypeToolkit(
 
 	const config = new Config();
 	function postLlmSettings() {
+		const chosen = selectedModel(context, config);
 		panel?.webview.postMessage({
 			type: "llmSettings",
 			settings: {
-				models: config.llmModels,
-				model: selectedModel(context, config),
-				baseUrl: config.llmBaseUrl,
+				models: allModels(config),
+				model: chosen && { provider: chosen.provider, model: chosen.model },
+				baseUrl: chosen?.baseUrl,
 				maxTries: config.llmMaxTries,
 				timeoutCountsAsFail: config.llmTimeoutCountsAsFail,
 			},

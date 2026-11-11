@@ -68,7 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				return inferTypeWithLlm(context, client, config, output, uri, position);
 			},
 		),
-		vscode.commands.registerCommand("mlsem.setLlmApiKey", () => setApiKey(context)),
+		vscode.commands.registerCommand("mlsem.setLlmApiKey", () => setApiKey(context, config)),
 	);
 
 	const codeActionProvider = vscode.languages.registerCodeActionsProvider(
