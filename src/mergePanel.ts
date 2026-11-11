@@ -93,16 +93,37 @@ function getHtml(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: strin
 </html>`;
 }
 
-async function fetchOverloads(uri: vscode.Uri, position: vscode.Position): Promise<OverloadsResult | undefined> {
+// The overloads of the binding at [position], or why there are none when the
+// request fails: the server refuses or gives up on a document whose
+// typecheck times out.
+async function fetchOverloads(
+	uri: vscode.Uri,
+	position: vscode.Position,
+): Promise<OverloadsResult | { failed: string } | undefined> {
 	if (!client) return undefined;
-	return client.sendRequest<OverloadsResult>("mlsem/overloads", {
-		textDocument: { uri: uri.toString() },
-		position: { line: position.line, character: position.character },
-		text: textOf(uri),
-	});
+	try {
+		return await client.sendRequest<OverloadsResult>("mlsem/overloads", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+		});
+	} catch (e) {
+		return { failed: e instanceof Error ? e.message : String(e) };
+	}
 }
 
-function postOverloads(result: OverloadsResult): void {
+function postOverloads(result: OverloadsResult | { failed: string }): void {
+	if ("failed" in result) {
+		panel?.webview.postMessage({
+			type: "overloads",
+			found: false,
+			binding: { name: "", declared: false },
+			overloads: [],
+			concreteTypes: [],
+			reason: result.failed,
+		});
+		return;
+	}
 	panel?.webview.postMessage({
 		type: "overloads",
 		found: result.found,
@@ -120,25 +141,30 @@ function postOverloads(result: OverloadsResult): void {
 // none (blank lines, comments, type definitions).
 async function definitionAt(uri: vscode.Uri, position: vscode.Position): Promise<string | undefined> {
 	if (!client) return undefined;
-	const result = await client.sendRequest<{ ok: boolean; name?: string }>("mlsem/definitionAt", {
-		textDocument: { uri: uri.toString() },
-		position: { line: position.line, character: position.character },
-		text: textOf(uri),
-	});
-	return result.ok ? result.name : undefined;
+	try {
+		const result = await client.sendRequest<{ ok: boolean; name?: string }>("mlsem/definitionAt", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+		});
+		return result.ok ? result.name : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 // Re-fetch the panel's target and post it to every tool, whatever it is —
 // used for explicit (re)opens and refreshes, where "nothing here" is useful
-// feedback. The overload tools get the binding's overloads, or "not found"
-// when the definition does not typecheck; the LLM tool gets its name.
+// feedback. The target's name is posted first: the overloads need the
+// document's typecheck, which may take until it times out, and the LLM tool
+// does not wait for them.
 async function refreshCurrent(): Promise<void> {
 	if (!panel || !currentUri || !currentPosition) return;
-	const [name, overloads] = await Promise.all([
-		definitionAt(currentUri, currentPosition),
-		fetchOverloads(currentUri, currentPosition),
-	]);
+	const uri = currentUri;
+	const position = currentPosition;
+	const name = await definitionAt(uri, position);
 	panel?.webview.postMessage({ type: "target", name: name ?? null });
+	const overloads = await fetchOverloads(uri, position);
 	if (overloads) postOverloads(overloads);
 }
 

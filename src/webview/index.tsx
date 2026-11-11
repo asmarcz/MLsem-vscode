@@ -58,6 +58,8 @@ interface AppState {
 	// panel's target is not in a definition. When it typechecks, [binding] is
 	// its binding.
 	target: string | null;
+	// Why the overload tools have no binding, when the request failed.
+	overloadsFailure: string | null;
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
 	collapsed: Record<SectionId, boolean>;
 }
@@ -85,6 +87,7 @@ const initialState: AppState = {
 	llmSettings: null,
 	llmStatus: { state: "idle" },
 	target: null,
+	overloadsFailure: null,
 	collapsed: { merge: false, instantiate: false, llm: false },
 };
 
@@ -129,6 +132,7 @@ function reducer(state: AppState, action: Action): AppState {
 					llmSettings: state.llmSettings,
 					llmStatus: state.llmStatus,
 					target: state.target,
+					overloadsFailure: action.reason ?? null,
 					collapsed: state.collapsed,
 				};
 			}
@@ -146,6 +150,7 @@ function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				found: true,
+				overloadsFailure: null,
 				binding: action.binding,
 				overloads: action.overloads,
 				concreteTypes: action.concreteTypes,
@@ -598,10 +603,6 @@ function LlmTool({ state }: { state: AppState }) {
 	const name = state.target;
 	return (
 		<>
-			<p class="note tool-subtitle">
-				Ask an LLM for the <code>val</code> lines of the definition, and check them. Rejected answers are sent back with
-				the type errors.
-			</p>
 			{settings && (
 				<p class="llm-settings">
 					{settings.model ? (
@@ -681,7 +682,11 @@ function App() {
 
 	const notFound = (
 		<p class="note note-absent">
-			{state.target ? (
+			{state.target && state.overloadsFailure ? (
+				<>
+					No overloads for <code>{state.target}</code>: {state.overloadsFailure}
+				</>
+			) : state.target ? (
 				<>
 					<code>{state.target}</code> does not typecheck, so it has no overloads.
 				</>

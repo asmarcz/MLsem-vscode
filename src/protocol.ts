@@ -60,6 +60,9 @@ export type ExtensionToWebview =
 			overloads: Overload[];
 			// Concrete-type suggestions for the instantiate comboboxes.
 			concreteTypes: string[];
+			// Why there is no binding, when the request failed (e.g. the
+			// document's typecheck timed out).
+			reason?: string;
 	  }
 	| { type: "preview"; ok: boolean; text?: string; error?: string }
 	| { type: "applied"; error?: string }
