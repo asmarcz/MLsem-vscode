@@ -23,8 +23,11 @@ interface Range {
 	end: { line: number; character: number };
 }
 
-// [line] is the definition's first line, 0-based.
-type DefinitionAt = { ok: true; name: string; definition: string; line: number } | { ok: false; error: string };
+// [line] is the definition's first line, 0-based. [fileFailure] is set when
+// the file's own typecheck timed out or crashed, in an unknown definition.
+type DefinitionAt =
+	| { ok: true; name: string; definition: string; line: number; fileFailure: string | null }
+	| { ok: false; error: string };
 
 type CheckResult =
 	| { ok: true; edit: { range: Range; newText: string } }
@@ -141,12 +144,18 @@ export async function inferTypeWithLlm(
 	const openai = new OpenAI({ baseURL: config.llmBaseUrl, apiKey: key || "none" });
 	const maxTries = config.llmMaxTries;
 	const timeoutCountsAsFail = config.llmTimeoutCountsAsFail;
+	// TODO: the server does not know which definition the file's typecheck
+	// failed in (see [mark_failed] in the server), so this cannot say whether
+	// it is this one.
+	const status = def.fileFailure
+		? `\n\nTypechecking this file as it is does not succeed: ${def.fileFailure}. It is not known in which definition.`
+		: "";
 	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
 		{ role: "system", content: SYSTEM_PROMPT },
 		{
 			role: "user",
 			// The whole file: a definition may use later ones that have a val.
-			content: `Here is the file:\n\n${text}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}`,
+			content: `Here is the file:\n\n${text}${status}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}`,
 		},
 	];
 	output.info(`LLM: inferring the type of ${name} with ${model} at ${config.llmBaseUrl}`);
