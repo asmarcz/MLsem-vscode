@@ -69,7 +69,7 @@
 				},
 				"mlsem.llm.providers": {
 					"default": {},
-					"markdownDescription": "OpenAI-compatible endpoints used by `MLsem: Infer type with LLM`, by name: each with its base URL (e.g. `https://openrouter.ai/api/v1`, or `http://localhost:11434/v1` for Ollama) and the models it offers, as it names them. The model used is chosen in the type toolkit's LLM inference section, the first by default. Each provider's API key is set with `MLsem: Set LLM API key`.\n\nExample: `{ \"openai\": { \"baseUrl\": \"https://api.openai.com/v1\", \"models\": [\"gpt-5-mini\"] } }`",
+					"markdownDescription": "OpenAI-compatible endpoints used by `MLsem: Infer type with LLM`. Each provider's API key is set with `MLsem: Set LLM API key`.\n\nExample: `{ \"openai\": { \"baseUrl\": \"https://api.openai.com/v1\", \"models\": [\"gpt-5-mini\"] } }`",
 					"scope": "window",
 					"type": "object",
 					"additionalProperties": {
