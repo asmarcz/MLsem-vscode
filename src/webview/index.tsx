@@ -697,13 +697,13 @@ function App() {
 		<>
 			<style>{css}</style>
 			<div class="dashboard">
-				<Section id="merge" title="Merge overloads" state={state} dispatch={dispatch}>
+				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch}>
 					{state.found ? <MergeTool state={state} dispatch={dispatch} /> : notFound}
 				</Section>
-				<Section id="instantiate" title="Instantiate type variables" state={state} dispatch={dispatch}>
+				<Section id="instantiate" title="Type variable instantiation" state={state} dispatch={dispatch}>
 					{state.found ? <InstantiateTool state={state} dispatch={dispatch} /> : notFound}
 				</Section>
-				<Section id="llm" title="Infer type with LLM" state={state} dispatch={dispatch}>
+				<Section id="llm" title="LLM inference" state={state} dispatch={dispatch}>
 					<LlmTool state={state} />
 				</Section>
 			</div>
