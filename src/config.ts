@@ -18,6 +18,18 @@ export class Config {
 		return this.cfg.get<boolean>("hover.overloadColors") ?? true;
 	}
 
+	get llmBaseUrl(): string {
+		return this.cfg.get<string>("llm.baseUrl") || "https://api.openai.com/v1";
+	}
+
+	get llmModel(): string {
+		return this.cfg.get<string>("llm.model") ?? "";
+	}
+
+	get llmMaxTries(): number {
+		return Math.max(1, this.cfg.get<number>("llm.maxTries") ?? 5);
+	}
+
 	get serverPath(): string | null {
 		// biome-ignore lint/style/noNonNullAssertion: Keep in sync with package.json.
 		return this.cfg.get<string | null>("server.path")!;

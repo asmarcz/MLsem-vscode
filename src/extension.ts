@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 import { Config } from "./config";
+import { inferTypeWithLlm, setApiKey } from "./llm";
 import { openTypeToolkit } from "./mergePanel";
 import { OverloadColors } from "./overloadColors";
 
@@ -54,6 +55,22 @@ export async function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(restartDisposable);
 
+	context.subscriptions.push(
+		vscode.commands.registerCommand(
+			"mlsem.inferTypeWithLlm",
+			// From the lightbulb we get a location; from the editor title button
+			// we get the file's uri only, so the caret is used.
+			(uri?: vscode.Uri, position?: vscode.Position) => {
+				if (!client) {
+					vscode.window.showErrorMessage("MLsem language server is not running.");
+					return;
+				}
+				return inferTypeWithLlm(context, client, config, output, uri, position);
+			},
+		),
+		vscode.commands.registerCommand("mlsem.setLlmApiKey", () => setApiKey(context)),
+	);
+
 	const codeActionProvider = vscode.languages.registerCodeActionsProvider(
 		{ language: "mlsem" },
 		{
@@ -64,7 +81,13 @@ export async function activate(context: vscode.ExtensionContext) {
 					title: "MLsem: Type toolkit…",
 					arguments: [document.uri, range.start],
 				};
-				return [action];
+				const llm = new vscode.CodeAction("MLsem: Infer type with LLM", vscode.CodeActionKind.RefactorRewrite);
+				llm.command = {
+					command: "mlsem.inferTypeWithLlm",
+					title: "MLsem: Infer type with LLM",
+					arguments: [document.uri, range.start],
+				};
+				return [action, llm];
 			},
 		},
 		{ providedCodeActionKinds: [vscode.CodeActionKind.RefactorRewrite] },

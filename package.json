@@ -29,8 +29,26 @@
 			{
 				"command": "mlsem.restartServer",
 				"title": "MLsem: Restart language server"
+			},
+			{
+				"command": "mlsem.inferTypeWithLlm",
+				"title": "MLsem: Infer type with LLM",
+				"icon": "$(sparkle)"
+			},
+			{
+				"command": "mlsem.setLlmApiKey",
+				"title": "MLsem: Set LLM API key"
 			}
 		],
+		"menus": {
+			"editor/title": [
+				{
+					"command": "mlsem.inferTypeWithLlm",
+					"when": "editorLangId == mlsem",
+					"group": "navigation"
+				}
+			]
+		},
 		"configuration": {
 			"title": "MLsem",
 			"properties": {
@@ -48,6 +66,25 @@
 					"description": "In hovers of variables with several overloads, show a colour swatch per overload and tint the matching part of its `val` line in the editor while the hover is shown.",
 					"scope": "window",
 					"type": "boolean"
+				},
+				"mlsem.llm.baseUrl": {
+					"default": "https://api.openai.com/v1",
+					"description": "Base URL of the OpenAI-compatible endpoint used by `MLsem: Infer type with LLM`, e.g. `https://openrouter.ai/api/v1` or `http://localhost:11434/v1` for Ollama. The API key is set with `MLsem: Set LLM API key`.",
+					"scope": "window",
+					"type": "string"
+				},
+				"mlsem.llm.model": {
+					"default": "",
+					"description": "Model used by `MLsem: Infer type with LLM`, as the endpoint names it.",
+					"scope": "window",
+					"type": "string"
+				},
+				"mlsem.llm.maxTries": {
+					"default": 5,
+					"minimum": 1,
+					"description": "How many answers `MLsem: Infer type with LLM` asks for before giving up. Each rejected answer is sent back to the LLM with the type errors.",
+					"scope": "window",
+					"type": "integer"
 				},
 				"mlsem.trace.server": {
 					"description": "Trace setting of the MLsem language server.",
@@ -101,6 +138,7 @@
 		"typescript": "^6.0.3"
 	},
 	"dependencies": {
+		"openai": "7.55.0",
 		"preact": "^10.29.2",
 		"vscode-languageclient": "^9.0.1"
 	}
