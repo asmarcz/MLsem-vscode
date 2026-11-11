@@ -1,5 +1,16 @@
 import * as vscode from "vscode";
 
+import type { Effort } from "./protocol";
+
+const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
+
+// A model of mlsem.llm.anthropic, with the effort to use it at, if not its
+// default.
+export interface AnthropicModel {
+	model: string;
+	effort?: Effort;
+}
+
 export interface LlmProvider {
 	name: string;
 	baseUrl: string;
@@ -38,6 +49,24 @@ export class Config {
 				: [];
 			return [{ name, baseUrl, models: [...new Set(names)] }];
 		});
+	}
+
+	// The models of mlsem.llm.anthropic in the order given: names, or
+	// { model, effort } objects. Unknown efforts are dropped, as are empty
+	// names and repeated entries.
+	get llmAnthropicModels(): AnthropicModel[] {
+		const setting = this.cfg.get<unknown>("llm.anthropic");
+		const models =
+			typeof setting === "object" && setting !== null ? (setting as { models?: unknown }).models : undefined;
+		if (!Array.isArray(models)) return [];
+		const parsed = models.flatMap((m): AnthropicModel[] => {
+			if (typeof m === "string") return m.trim() === "" ? [] : [{ model: m }];
+			if (typeof m !== "object" || m === null) return [];
+			const { model, effort } = m as { model?: unknown; effort?: unknown };
+			if (typeof model !== "string" || model.trim() === "") return [];
+			return [EFFORTS.includes(effort as Effort) ? { model, effort: effort as Effort } : { model }];
+		});
+		return parsed.filter((m, i) => parsed.findIndex((n) => n.model === m.model && n.effort === m.effort) === i);
 	}
 
 	get llmMaxTries(): number {

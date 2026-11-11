@@ -261,7 +261,7 @@ export function openTypeToolkit(
 			type: "llmSettings",
 			settings: {
 				models: allModels(config),
-				model: chosen && { provider: chosen.provider, model: chosen.model },
+				model: chosen && { api: chosen.api, provider: chosen.provider, model: chosen.model, effort: chosen.effort },
 				baseUrl: chosen?.baseUrl,
 				maxTries: config.llmMaxTries,
 				timeoutCountsAsFail: config.llmTimeoutCountsAsFail,

@@ -2,19 +2,23 @@
 // lets the language server check them, feeding the errors back until the
 // definition checks or the tries run out.
 //
-// Any OpenAI-compatible endpoint works: the base URL and model are settings,
-// the API key is kept in VS Code's secret storage. Only Chat Completions is
-// used, since that is the part every compatible server implements.
+// Models come from any OpenAI-compatible endpoint (mlsem.llm.providers: base
+// URL and models; only Chat Completions is used, since every compatible
+// server implements it), or from Anthropic's native API (mlsem.llm.anthropic:
+// models with an effort each). See llmApi.ts. API keys are kept in VS Code's
+// secret storage; the native API also finds ANTHROPIC_API_KEY or an
+// `ant auth login` profile.
 //
 // The server never trusts the answer: `mlsem/checkSignature` writes the
 // candidate lines above the definition in a copy of the file and typechecks
 // it, and the document is only edited once a candidate passes.
 
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import type { Config } from "./config";
-import { type LlmAttempt, type LlmModel, type LlmStatus, triesText } from "./protocol";
+import { addUsage, anthropicConversation, type Conversation, newUsage, openAiConversation, usageText } from "./llmApi";
+import { type LlmAttempt, type LlmModel, type LlmStatus, sameModel, triesText } from "./protocol";
 
 interface Range {
 	start: { line: number; character: number };
@@ -84,30 +88,42 @@ function reportStatus(status: LlmStatus) {
 	statusEmitter.fire(status);
 }
 
-// Each provider's API key, in VS Code's secret storage.
+// Each OpenAI-compatible provider's API key, and the native Anthropic API's,
+// in VS Code's secret storage.
 const apiKeySecret = (provider: string) => `mlsem.llm.apiKey/${provider}`;
+const ANTHROPIC_KEY = "mlsem.llm.anthropicApiKey";
+// How the native Anthropic API is named as a provider, in the dropdown and
+// the key picker.
+export const ANTHROPIC_PROVIDER = "Anthropic API";
 
 // Ask for and store the API key of [provider], or of a provider picked from
-// mlsem.llm.providers.
+// mlsem.llm.providers and the native Anthropic API.
 export async function setApiKey(context: vscode.ExtensionContext, config: Config, provider?: string) {
 	let name = provider;
 	if (name === undefined) {
-		const names = config.llmProviders.map((p) => p.name);
+		const names = [
+			...config.llmProviders.map((p) => p.name),
+			...(config.llmAnthropicModels.length > 0 ? [ANTHROPIC_PROVIDER] : []),
+		];
 		if (names.length === 0) {
-			vscode.window.showErrorMessage("Add a provider to mlsem.llm.providers first.");
+			vscode.window.showErrorMessage("Add models to mlsem.llm.providers or mlsem.llm.anthropic first.");
 			return undefined;
 		}
 		name = names.length === 1 ? names[0] : await vscode.window.showQuickPick(names, { title: "MLsem: LLM provider" });
 		if (name === undefined) return undefined;
 	}
+	const native = name === ANTHROPIC_PROVIDER;
 	const key = await vscode.window.showInputBox({
 		title: `MLsem: API key of ${name}`,
-		prompt: "Leave empty for a local server that needs none.",
+		prompt: native
+			? "Leave empty to use ANTHROPIC_API_KEY or your `ant auth login` profile."
+			: "Leave empty for a local server that needs none.",
 		password: true,
 		ignoreFocusOut: true,
 	});
 	if (key === undefined) return undefined;
-	await context.secrets.store(apiKeySecret(name), key);
+	if (native && key === "") await context.secrets.delete(ANTHROPIC_KEY);
+	else await context.secrets.store(native ? ANTHROPIC_KEY : apiKeySecret(name), key);
 	return key;
 }
 
@@ -115,31 +131,54 @@ async function apiKey(context: vscode.ExtensionContext, config: Config, provider
 	return (await context.secrets.get(apiKeySecret(provider))) ?? (await setApiKey(context, config, provider));
 }
 
+// A client for the native Anthropic API: with the stored key, or else the
+// SDK's own lookup (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, an `ant auth
+// login` profile). Undefined, with the reason shown, when it finds none.
+async function anthropicClient(context: vscode.ExtensionContext): Promise<Anthropic | undefined> {
+	const key = await context.secrets.get(ANTHROPIC_KEY);
+	try {
+		return key ? new Anthropic({ apiKey: key }) : new Anthropic();
+	} catch (e) {
+		vscode.window.showErrorMessage(`MLsem: no credentials for the Anthropic API (${e}). ${ANTHROPIC_CREDENTIALS}`);
+		return undefined;
+	}
+}
+
+const ANTHROPIC_CREDENTIALS =
+	"Set a key with `MLsem: Set LLM API key`, set ANTHROPIC_API_KEY, or run `ant auth login`.";
+
 // The model chosen in the type toolkit, kept for the user across sessions
-// and workspaces. When it is no longer among the providers' models, the
+// and workspaces. When it is no longer among the configured models, the
 // first one.
 const SELECTED_MODEL = "mlsem.llm.selectedModel";
 
 export function allModels(config: Config): LlmModel[] {
-	return config.llmProviders.flatMap((p) => p.models.map((model) => ({ provider: p.name, model })));
+	return [
+		...config.llmProviders.flatMap((p) =>
+			p.models.map((model): LlmModel => ({ api: "openai", provider: p.name, model })),
+		),
+		...config.llmAnthropicModels.map(
+			(m): LlmModel => ({ api: "anthropic", provider: ANTHROPIC_PROVIDER, model: m.model, effort: m.effort }),
+		),
+	];
 }
 
+// The chosen model, with its provider's base URL for an OpenAI-compatible one.
 export function selectedModel(
 	context: vscode.ExtensionContext,
 	config: Config,
-): (LlmModel & { baseUrl: string }) | undefined {
-	const providers = config.llmProviders;
+): (LlmModel & { baseUrl?: string }) | undefined {
+	const models = allModels(config);
 	const chosen = context.globalState.get<LlmModel>(SELECTED_MODEL);
-	const found =
-		chosen && providers.find((p) => p.name === chosen.provider && p.models.includes(chosen.model)) && chosen;
-	const model = found || allModels(config)[0];
+	const model = (chosen && models.find((m) => sameModel(m, chosen))) || models[0];
 	if (!model) return undefined;
-	const provider = providers.find((p) => p.name === model.provider);
-	return provider && { provider: model.provider, model: model.model, baseUrl: provider.baseUrl };
+	if (model.api === "anthropic") return model;
+	return { ...model, baseUrl: config.llmProviders.find((p) => p.name === model.provider)?.baseUrl };
 }
 
 export function selectModel(context: vscode.ExtensionContext, model: LlmModel) {
-	return context.globalState.update(SELECTED_MODEL, { provider: model.provider, model: model.model });
+	const { api, provider, model: name, effort } = model;
+	return context.globalState.update(SELECTED_MODEL, { api, provider, model: name, effort });
 }
 
 // The type part of each `val` line of [name] in [reply]. Lines for other names
@@ -155,47 +194,6 @@ export function parseVals(reply: string, name: string): string[] {
 
 function feedback(errors: string[]) {
 	return `MLsem rejected these types:\n${errors.map((e) => `- ${e}`).join("\n")}\n\nAnswer again with only the val line(s).`;
-}
-
-// Token counts, as OpenAI-compatible servers report them in each answer's
-// usage. Cached and reasoning tokens are part of the prompt and completion
-// counts, and only some providers report them. [unreported] counts the
-// answers without usage, whose tokens are missing from the totals.
-interface Usage {
-	prompt: number;
-	completion: number;
-	cached: number;
-	reasoning: number;
-	unreported: number;
-}
-
-function newUsage(): Usage {
-	return { prompt: 0, completion: 0, cached: 0, reasoning: 0, unreported: 0 };
-}
-
-// Adds an answer's usage to [total], and returns the answer's own.
-function addUsage(total: Usage, u: OpenAI.CompletionUsage | undefined): Usage {
-	const one = newUsage();
-	if (u) {
-		one.prompt = u.prompt_tokens ?? 0;
-		one.completion = u.completion_tokens ?? 0;
-		one.cached = u.prompt_tokens_details?.cached_tokens ?? 0;
-		one.reasoning = u.completion_tokens_details?.reasoning_tokens ?? 0;
-	} else {
-		one.unreported = 1;
-	}
-	for (const k of Object.keys(one) as (keyof Usage)[]) total[k] += one[k];
-	return one;
-}
-
-function usageText(u: Usage): string {
-	const parts = [`${u.prompt} prompt tokens`];
-	if (u.cached > 0) parts.push(`${u.cached} of them cached`);
-	parts.push(`${u.completion} completion tokens`);
-	if (u.reasoning > 0) parts.push(`${u.reasoning} of them reasoning`);
-	const text = parts.join(", ");
-	if (u.unreported === 0) return text;
-	return `${text} (${u.unreported === 1 ? "1 answer" : `${u.unreported} answers`} reported no usage)`;
 }
 
 type Outcome =
@@ -231,15 +229,27 @@ export async function inferTypeWithLlm(
 	const chosen = selectedModel(context, config);
 	if (!chosen) {
 		const open = await vscode.window.showErrorMessage(
-			"Add a provider with models to mlsem.llm.providers.",
+			"Add models to mlsem.llm.providers or mlsem.llm.anthropic.",
 			"Open settings",
 		);
 		if (open) vscode.commands.executeCommand("workbench.action.openSettings", "mlsem.llm");
 		return;
 	}
 	const { model, baseUrl } = chosen;
-	const key = await apiKey(context, config, chosen.provider);
-	if (key === undefined) return;
+	// Builds the conversation once the first message is known.
+	let start: (first: string) => Conversation;
+	if (chosen.api === "anthropic") {
+		const anthropic = await anthropicClient(context);
+		if (!anthropic) return;
+		start = (first) => anthropicConversation(anthropic, model, chosen.effort, SYSTEM_PROMPT, first);
+	} else {
+		if (baseUrl === undefined) return;
+		const key = await apiKey(context, config, chosen.provider);
+		if (key === undefined) return;
+		start = (first) => openAiConversation(baseUrl, key, model, SYSTEM_PROMPT, first);
+	}
+	const where = chosen.api === "anthropic" ? ANTHROPIC_PROVIDER : `${chosen.provider} at ${baseUrl}`;
+	const effort = chosen.effort ? ` at effort ${chosen.effort}` : "";
 
 	const text = document.getText();
 	const version = document.version;
@@ -251,12 +261,9 @@ export async function inferTypeWithLlm(
 	}
 	const name = def.name;
 
-	// The SDK refuses an empty key; local servers ignore whatever is sent.
-	const openai = new OpenAI({ baseURL: baseUrl, apiKey: key || "none" });
 	const maxTries = config.llmMaxTries;
 	const timeoutCountsAsFail = config.llmTimeoutCountsAsFail;
-	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [{ role: "system", content: SYSTEM_PROMPT }];
-	output.info(`LLM: inferring the type of ${name} with ${model} of ${chosen.provider} at ${baseUrl}`);
+	output.info(`LLM: inferring the type of ${name} with ${model}${effort} of ${where}`);
 
 	let tries = 0;
 	// What each answer proposed and what came of it, in order.
@@ -287,11 +294,10 @@ export async function inferTypeWithLlm(
 				if (token.isCancellationRequested) return { kind: "cancelled" };
 				const paragraph = statusText(name, status);
 				output.info(`LLM: status of ${name}: ${paragraph || "unknown"}`);
-				messages.push({
-					role: "user",
+				const conversation = start(
 					// The whole file: a definition may use later ones that have a val.
-					content: `Here is the file:\n\n${text}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}${paragraph ? `\n\n${paragraph}` : ""}`,
-				});
+					`Here is the file:\n\n${text}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}${paragraph ? `\n\n${paragraph}` : ""}`,
+				);
 
 				let errors: string[] = [];
 				while (tries < maxTries) {
@@ -300,17 +306,22 @@ export async function inferTypeWithLlm(
 					reportStatus({ state: "running", name, tries, maxTries, attempts: [...attempts] });
 					let reply: string;
 					try {
-						const completion = await openai.chat.completions.create({ model, messages }, { signal: abort.signal });
-						reply = completion.choices[0]?.message.content ?? "";
-						const tryUsage = addUsage(usage, completion.usage);
+						const answer = await conversation.ask(abort.signal);
+						reply = answer.text;
+						if (answer.usage) addUsage(usage, answer.usage);
+						else usage.unreported++;
 						output.info(
-							`LLM try ${tries} tokens: ${completion.usage ? usageText(tryUsage) : "not reported by the server"}`,
+							`LLM try ${tries} tokens: ${answer.usage ? usageText(answer.usage) : "not reported by the server"}`,
 						);
+						if (answer.thinking.trim()) output.info(`LLM try ${tries} thinking: ${answer.thinking.trim()}`);
+						if (answer.refusal !== undefined) {
+							return { kind: "failed", error: `The model declined to answer: ${answer.refusal}` };
+						}
 					} catch (e) {
 						if (token.isCancellationRequested) return { kind: "cancelled" };
-						return { kind: "failed", error: `The LLM request failed: ${e}` };
+						const hint = e instanceof Anthropic.AuthenticationError ? ` ${ANTHROPIC_CREDENTIALS}` : "";
+						return { kind: "failed", error: `The LLM request failed: ${e}${hint}` };
 					}
-					messages.push({ role: "assistant", content: reply });
 					output.info(`LLM try ${tries}: ${reply.trim()}`);
 
 					const types = parseVals(reply, name);
@@ -342,7 +353,7 @@ export async function inferTypeWithLlm(
 						attempts.push({ vals, result: timedOut ? "timed out" : "rejected", errors });
 					}
 					output.info(`LLM try ${tries} rejected:\n${errors.join("\n")}`);
-					messages.push({ role: "user", content: feedback(errors) });
+					conversation.tell(feedback(errors));
 				}
 				return { kind: "exhausted", errors };
 			},
@@ -354,10 +365,10 @@ export async function inferTypeWithLlm(
 	running = false;
 
 	const after = triesText(tries);
-	output.info(`LLM: ${name} used ${usageText(usage)} in ${after} with ${model} of ${chosen.provider}`);
+	output.info(`LLM: ${name} used ${usageText(usage)} in ${after} with ${model}${effort} of ${where}`);
 	// One line per run, for grepping and comparing.
 	output.info(
-		`LLM usage ${JSON.stringify({ definition: name, provider: chosen.provider, model, tries, outcome: outcome.kind, ...usage })}`,
+		`LLM usage ${JSON.stringify({ definition: name, api: chosen.api, provider: chosen.provider, model, effort: chosen.effort ?? null, tries, outcome: outcome.kind, ...usage })}`,
 	);
 	const report = (s: { ok: boolean; message: string; vals?: string[] }) =>
 		reportStatus({ state: "done", name, tries, attempts, ...s });

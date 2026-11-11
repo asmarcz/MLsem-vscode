@@ -8,7 +8,9 @@ import {
 	type LlmAttempt,
 	type LlmSettings,
 	type LlmStatus,
+	modelLabel,
 	type Overload,
+	sameModel,
 	triesText,
 	type WebviewToExtension,
 } from "../protocol";
@@ -653,13 +655,12 @@ function LlmTool({ state }: { state: AppState }) {
 				<label class="llm-model">
 					<span>Model</span>
 					{/* Options are keyed by their index in settings.models, grouped by
-					    provider since two providers may offer the same model. */}
+					    provider (and API) since two providers may offer the same
+					    model, and one model may come at several efforts. */}
 					<select
 						class="select"
 						value={String(
-							settings.models.findIndex(
-								(m) => m.provider === settings.model?.provider && m.model === settings.model?.model,
-							),
+							settings.models.findIndex((m) => settings.model !== undefined && sameModel(m, settings.model)),
 						)}
 						disabled={running}
 						onChange={(e) => {
@@ -667,12 +668,12 @@ function LlmTool({ state }: { state: AppState }) {
 							if (model) vscodeApi.postMessage({ type: "selectModel", model });
 						}}
 					>
-						{[...new Set(settings.models.map((m) => m.provider))].map((provider) => (
-							<optgroup key={provider} label={provider}>
+						{[...new Set(settings.models.map((m) => `${m.api}:${m.provider}`))].map((group) => (
+							<optgroup key={group} label={group.slice(group.indexOf(":") + 1)}>
 								{settings.models.map((m, i) =>
-									m.provider === provider ? (
+									`${m.api}:${m.provider}` === group ? (
 										<option key={i} value={String(i)}>
-											{m.model}
+											{modelLabel(m)}
 										</option>
 									) : null,
 								)}
@@ -685,10 +686,17 @@ function LlmTool({ state }: { state: AppState }) {
 				<p class="llm-settings">
 					{settings.models.length > 0 ? (
 						<>
-							{settings.model?.provider} at <code>{settings.baseUrl}</code>, up to {settings.maxTries} tries.
+							{settings.baseUrl ? (
+								<>
+									{settings.model?.provider} at <code>{settings.baseUrl}</code>
+								</>
+							) : (
+								settings.model?.provider
+							)}
+							, up to {settings.maxTries} tries.
 						</>
 					) : (
-						"No providers with models are set."
+						"No models are set."
 					)}{" "}
 					<button type="button" class="link" onClick={() => vscodeApi.postMessage({ type: "openLlmSettings" })}>
 						Settings

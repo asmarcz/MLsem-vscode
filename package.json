@@ -67,6 +67,44 @@
 					"scope": "window",
 					"type": "boolean"
 				},
+				"mlsem.llm.anthropic": {
+					"default": {},
+					"markdownDescription": "Claude models used by `MLsem: Infer type with LLM` through Anthropic's native API, which reports thinking tokens, takes an effort per model and caches the prompt across tries. A model is a name, or `{ \"model\": ..., \"effort\": ... }` to use it at an effort (`low`, `medium`, `high`, `xhigh` or `max`) instead of its default; the same model may be listed at several efforts. The key is set with `MLsem: Set LLM API key`, or taken from `ANTHROPIC_API_KEY` or an `ant auth login` profile.\n\nExample: `{ \"models\": [\"claude-haiku-5-5\", { \"model\": \"claude-opus-5-5\", \"effort\": \"low\" }] }`",
+					"scope": "window",
+					"type": "object",
+					"properties": {
+						"models": {
+							"type": "array",
+							"items": {
+								"anyOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "object",
+										"properties": {
+											"model": {
+												"type": "string"
+											},
+											"effort": {
+												"enum": [
+													"low",
+													"medium",
+													"high",
+													"xhigh",
+													"max"
+												]
+											}
+										},
+										"required": [
+											"model"
+										]
+									}
+								]
+							}
+						}
+					}
+				},
 				"mlsem.llm.providers": {
 					"default": {},
 					"markdownDescription": "OpenAI-compatible endpoints used by `MLsem: Infer type with LLM`. Each provider's API key is set with `MLsem: Set LLM API key`.\n\nExample: `{ \"openai\": { \"baseUrl\": \"https://api.openai.com/v1\", \"models\": [\"gpt-5-mini\"] } }`",
@@ -158,6 +196,7 @@
 		"typescript": "^6.0.3"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^1.8.0",
 		"openai": "7.55.0",
 		"preact": "^10.29.2",
 		"vscode-languageclient": "^9.0.1"

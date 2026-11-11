@@ -55,15 +55,37 @@ export function triesText(tries: number) {
 	return tries === 1 ? "1 try" : `${tries} tries`;
 }
 
-// A model of a provider of mlsem.llm.providers.
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+// A model offered in the type toolkit: one of a provider of
+// mlsem.llm.providers through its OpenAI-compatible API, or one of
+// mlsem.llm.anthropic through Anthropic's native API, with its effort.
 export interface LlmModel {
+	api: "openai" | "anthropic";
 	provider: string;
 	model: string;
+	effort?: Effort;
+}
+
+// The same model choice. A choice saved before [api] existed is OpenAI.
+export function sameModel(a: LlmModel, b: LlmModel) {
+	return (
+		(a.api ?? "openai") === (b.api ?? "openai") &&
+		a.provider === b.provider &&
+		a.model === b.model &&
+		a.effort === b.effort
+	);
+}
+
+// How a model is shown in the dropdown, within its provider's group.
+export function modelLabel(m: LlmModel) {
+	return m.effort ? `${m.model} (effort ${m.effort})` : m.model;
 }
 
 export interface LlmSettings {
 	// The models of all providers, in order, and the one chosen with its
-	// provider's base URL (undefined when there are none).
+	// provider's base URL (undefined when there are none, or for Anthropic's
+	// native API).
 	models: LlmModel[];
 	model?: LlmModel;
 	baseUrl?: string;
