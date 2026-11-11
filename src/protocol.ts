@@ -26,11 +26,20 @@ export interface Instantiation {
 	assignments: { var: string; type: string }[];
 }
 
+// One answer of the LLM: the val lines it proposed (none when it gave no
+// val line) and what came of them, with the errors sent back to it.
+export interface LlmAttempt {
+	vals: string[];
+	result: "checks" | "rejected" | "timed out" | "no val line";
+	errors?: string[];
+}
+
 // Progress of the LLM type inference, whichever way it was started. [tries]
-// counts the answers asked for so far.
+// counts the answers asked for so far; [attempts] are the answers checked so
+// far, in order.
 export type LlmStatus =
 	| { state: "idle" }
-	| { state: "running"; name: string; tries: number; maxTries: number }
+	| { state: "running"; name: string; tries: number; maxTries: number; attempts: LlmAttempt[] }
 	| {
 			state: "done";
 			ok: boolean;
@@ -39,6 +48,7 @@ export type LlmStatus =
 			message: string;
 			// The val lines found, or those whose check timed out.
 			vals?: string[];
+			attempts: LlmAttempt[];
 	  };
 
 export function triesText(tries: number) {

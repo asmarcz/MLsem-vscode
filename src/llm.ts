@@ -14,7 +14,7 @@ import OpenAI from "openai";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import type { Config } from "./config";
-import { type LlmModel, type LlmStatus, triesText } from "./protocol";
+import { type LlmAttempt, type LlmModel, type LlmStatus, triesText } from "./protocol";
 
 interface Range {
 	start: { line: number; character: number };
@@ -79,7 +79,7 @@ const statusEmitter = new vscode.EventEmitter<LlmStatus>();
 export const onLlmStatus = statusEmitter.event;
 let lastStatus: LlmStatus = { state: "idle" };
 export const llmStatus = () => lastStatus;
-function report(status: LlmStatus) {
+function reportStatus(status: LlmStatus) {
 	lastStatus = status;
 	statusEmitter.fire(status);
 }
@@ -218,6 +218,8 @@ export async function inferTypeWithLlm(
 	output.info(`LLM: inferring the type of ${name} with ${model} of ${chosen.provider} at ${baseUrl}`);
 
 	let tries = 0;
+	// What each answer proposed and what came of it, in order.
+	const attempts: LlmAttempt[] = [];
 	running = true;
 	const outcome: Outcome = await vscode.window
 		.withProgress(
@@ -252,7 +254,7 @@ export async function inferTypeWithLlm(
 				while (tries < maxTries) {
 					tries++;
 					progress.report({ message: `try ${tries} of ${maxTries}` });
-					report({ state: "running", name, tries, maxTries });
+					reportStatus({ state: "running", name, tries, maxTries, attempts: [...attempts] });
 					let reply: string;
 					try {
 						const completion = await openai.chat.completions.create({ model, messages }, { signal: abort.signal });
@@ -265,23 +267,32 @@ export async function inferTypeWithLlm(
 					output.info(`LLM try ${tries}: ${reply.trim()}`);
 
 					const types = parseVals(reply, name);
+					const vals = types.map((t) => `val ${name} : ${t}`);
 					if (types.length === 0) {
 						errors = [`The answer has no line of the form \`val ${name} : TYPE\`.`];
+						attempts.push({ vals, result: "no val line", errors });
 					} else {
 						let check: CheckResult;
+						let timedOut = false;
 						try {
 							check = await client.sendRequest<CheckResult>("mlsem/checkSignature", { ...at, types });
 						} catch (e) {
 							// The server gives up on a check that takes too long.
-							if (/timed out/i.test(String(e)) && !timeoutCountsAsFail) {
+							timedOut = /timed out/i.test(String(e));
+							if (timedOut && !timeoutCountsAsFail) {
+								attempts.push({ vals, result: "timed out" });
 								if (token.isCancellationRequested) return { kind: "cancelled" };
-								return { kind: "timedOut", vals: types.map((t) => `val ${name} : ${t}`) };
+								return { kind: "timedOut", vals };
 							}
 							check = { ok: false, errors: [`Type checking against these types did not finish: ${e}`] };
 						}
 						if (token.isCancellationRequested) return { kind: "cancelled" };
-						if (check.ok) return { kind: "ok", types, edit: check.edit };
+						if (check.ok) {
+							attempts.push({ vals, result: "checks" });
+							return { kind: "ok", types, edit: check.edit };
+						}
 						errors = check.errors ?? [check.error ?? "The definition does not check."];
+						attempts.push({ vals, result: timedOut ? "timed out" : "rejected", errors });
 					}
 					output.info(`LLM try ${tries} rejected:\n${errors.join("\n")}`);
 					messages.push({ role: "user", content: feedback(errors) });
@@ -296,27 +307,29 @@ export async function inferTypeWithLlm(
 	running = false;
 
 	const after = triesText(tries);
+	const report = (s: { ok: boolean; message: string; vals?: string[] }) =>
+		reportStatus({ state: "done", name, tries, attempts, ...s });
 	switch (outcome.kind) {
 		case "cancelled":
 			output.info("LLM: cancelled");
-			report({ state: "done", ok: false, name, tries, message: "Cancelled." });
+			report({ ok: false, message: "Cancelled." });
 			return;
 		case "failed":
 			output.error(outcome.error);
-			report({ state: "done", ok: false, name, tries, message: outcome.error });
+			report({ ok: false, message: outcome.error });
 			vscode.window.showErrorMessage(`MLsem: ${outcome.error}`);
 			return;
 		case "timedOut": {
 			const message = `Type checking the answer of try ${tries} timed out, so the inference of ${name} stopped there.`;
 			output.warn(`LLM: ${message} ${outcome.vals.join(" ; ")}`);
-			report({ state: "done", ok: false, name, tries, message, vals: outcome.vals });
+			report({ ok: false, message, vals: outcome.vals });
 			vscode.window.showWarningMessage(`MLsem: ${message}`);
 			return;
 		}
 		case "exhausted": {
 			const message = `No type of ${name} checked after ${after}. Last error: ${outcome.errors[0] ?? ""}`;
 			output.warn(`LLM: ${message}`);
-			report({ state: "done", ok: false, name, tries, message });
+			report({ ok: false, message });
 			const show = await vscode.window.showWarningMessage(`MLsem: ${message}`, "Show log");
 			if (show) output.show();
 			return;
@@ -325,7 +338,7 @@ export async function inferTypeWithLlm(
 			const vals = outcome.types.map((t) => `val ${name} : ${t}`);
 			if (document.version !== version) {
 				const message = `The file changed while the type of ${name} was inferred, so it was not inserted. Found after ${after}: ${vals.join(" ; ")}`;
-				report({ state: "done", ok: false, name, tries, message, vals });
+				report({ ok: false, message, vals });
 				vscode.window.showWarningMessage(`MLsem: ${message}`);
 				return;
 			}
@@ -339,7 +352,7 @@ export async function inferTypeWithLlm(
 			await vscode.workspace.applyEdit(edit);
 			const message = `The LLM found a type of ${name} that checks after ${after}.`;
 			output.info(`LLM: ${message}`);
-			report({ state: "done", ok: true, name, tries, message, vals });
+			report({ ok: true, message, vals });
 			vscode.window.showInformationMessage(`MLsem: ${message}`);
 		}
 	}

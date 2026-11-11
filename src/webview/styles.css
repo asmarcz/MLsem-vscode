@@ -215,6 +215,111 @@ body {
 	margin: 0;
 }
 
+/* --- The list of tries ---
+   Native <details>, with a chevron like the section headers instead of the
+   browser's triangle. */
+.attempts summary,
+.attempt-errors summary {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	width: fit-content;
+	cursor: pointer;
+	list-style: none;
+}
+
+.attempts summary::-webkit-details-marker,
+.attempt-errors summary::-webkit-details-marker {
+	display: none;
+}
+
+.attempts summary::before,
+.attempt-errors summary::before {
+	content: "";
+	width: 5px;
+	height: 5px;
+	margin: 0 3px;
+	border-right: 1.2px solid currentColor;
+	border-bottom: 1.2px solid currentColor;
+	transform: rotate(-45deg);
+	transition: transform 0.1s;
+}
+
+.attempts[open] > summary::before,
+.attempt-errors[open] > summary::before {
+	transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.attempts summary::before,
+	.attempt-errors summary::before {
+		transition: none;
+	}
+}
+
+.attempts summary:focus-visible,
+.attempt-errors summary:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.attempt-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 8px 0 0 0;
+	padding: 0 0 0 16px;
+	list-style: none;
+}
+
+.attempt {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.attempt-head {
+	display: flex;
+	gap: 8px;
+	font-size: var(--tk-small-size);
+}
+
+.attempt-n {
+	font-weight: 600;
+}
+
+.result-checks {
+	color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+
+.result-rejected {
+	color: var(--vscode-errorForeground);
+}
+
+.result-timed-out {
+	color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+}
+
+.result-no-val-line {
+	opacity: var(--tk-dim);
+}
+
+.attempt-vals {
+	padding: 4px 8px;
+}
+
+.attempt-errors {
+	font-size: var(--tk-small-size);
+}
+
+.attempt-errors ul {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 4px 0 0 0;
+	padding: 0 0 0 16px;
+}
+
 .layout {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

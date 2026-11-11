@@ -5,6 +5,7 @@ import {
 	type ExtensionToWebview,
 	type Instantiation,
 	isFromExtension,
+	type LlmAttempt,
 	type LlmSettings,
 	type LlmStatus,
 	type Overload,
@@ -565,15 +566,59 @@ function Section({
 	);
 }
 
+// Every answer of the run so far, collapsed: what it proposed and what came
+// of it, with the errors sent back to the LLM collapsed under it.
+function AttemptsList({ attempts }: { attempts: LlmAttempt[] }) {
+	if (attempts.length === 0) return null;
+	return (
+		<details class="attempts">
+			<summary>{attempts.length === 1 ? "The 1 try" : `All ${attempts.length} tries`}</summary>
+			<ol class="attempt-list">
+				{attempts.map((a, i) => (
+					<li key={i} class="attempt">
+						<div class="attempt-head">
+							<span class="attempt-n">Try {i + 1}</span>
+							<span class={`attempt-result result-${a.result.replace(/ /g, "-")}`}>{a.result}</span>
+						</div>
+						{a.vals.length > 0 ? (
+							<div class="surface code-text preview-lines attempt-vals">
+								{a.vals.map((v, j) => (
+									<div key={j}>{v}</div>
+								))}
+							</div>
+						) : null}
+						{a.errors && a.errors.length > 0 && (
+							<details class="attempt-errors">
+								<summary>{a.errors.length === 1 ? "1 error" : `${a.errors.length} errors`}</summary>
+								<ul>
+									{a.errors.map((e, j) => (
+										<li key={j} class="code-text">
+											{e}
+										</li>
+									))}
+								</ul>
+							</details>
+						)}
+					</li>
+				))}
+			</ol>
+		</details>
+	);
+}
+
 function LlmStatusView({ status }: { status: LlmStatus }) {
 	switch (status.state) {
 		case "idle":
 			return null;
 		case "running":
 			return (
-				<p class="note llm-status" aria-live="polite">
-					Inferring the type of <code>{status.name}</code>: try {status.tries} of {status.maxTries}…
-				</p>
+				<div class="llm-result">
+					<p class="note llm-status" aria-live="polite">
+						Inferring the type of <code>{status.name}</code>: try {status.tries} of {status.maxTries}…
+					</p>
+					{/* Restored from an older version, a status may lack attempts. */}
+					<AttemptsList attempts={status.attempts ?? []} />
+				</div>
 			);
 		case "done":
 			return (
@@ -592,6 +637,7 @@ function LlmStatusView({ status }: { status: LlmStatus }) {
 							))}
 						</div>
 					)}
+					<AttemptsList attempts={status.attempts ?? []} />
 				</div>
 			);
 	}
