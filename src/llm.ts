@@ -39,12 +39,12 @@ No explanation and no code fences. Several val lines declare an overloaded defin
 Type syntax:
 - functions 't1 -> t2', tuples '(t1, t2)', type variables ''a', ''b'
 - union 't1 | t2', intersection 't1 & t2', negation '~t', difference 't1 \\ t2'
-- 'any', 'empty', base types such as 'int', 'bool', 'string', singletons such as '1', 'true', '()'
-- sequences (lists) with regular expressions: '[ int* ]', '[ 'a+ ]', '[ 'a* bool? ]'
+- 'any', 'empty', base types 'int', 'bool', 'string', 'char', singletons such as '1', 'true', '()'
+- sequences (lists) with regular expressions: '[ int* ]', '[ 'a+ ]', '[ 'a* bool? ]', '[ int+ bool+ ]'
 - applied type definitions 't('a)', tagged values 'Node(t1, t2)'
 - an intersection of arrows is an overloaded function, e.g. '(int -> int) & (bool -> bool)'
 
-Use the types defined in the file. Give the most precise type that the definition satisfies.`;
+Use the types defined in the file. Give the most sensible type given the function's actual or intended usage.`;
 
 // Every run reports here, wherever it was started from, so the type toolkit
 // can show it.
