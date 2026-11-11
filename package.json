@@ -73,11 +73,14 @@
 					"scope": "window",
 					"type": "string"
 				},
-				"mlsem.llm.model": {
-					"default": "",
-					"description": "Model used by `MLsem: Infer type with LLM`, as the endpoint names it.",
+				"mlsem.llm.models": {
+					"default": [],
+					"description": "Models offered by `MLsem: Infer type with LLM`, as the endpoint names them. The one used is chosen in the type toolkit's LLM inference section, the first by default.",
 					"scope": "window",
-					"type": "string"
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
 				},
 				"mlsem.llm.maxTries": {
 					"default": 5,

@@ -39,7 +39,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					targetPosition = editor.selection.active;
 				}
 			}
-			openTypeToolkit(context.extensionUri, client, targetUri, targetPosition);
+			openTypeToolkit(context, client, targetUri, targetPosition);
 		},
 	);
 	context.subscriptions.push(mergeDisposable);

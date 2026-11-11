@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
-import { llmStatus, onLlmStatus } from "./llm";
+import { llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
 import type { ExtensionToWebview, WebviewToExtension } from "./protocol";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
@@ -180,7 +180,7 @@ async function followCursor(uri: vscode.Uri, position: vscode.Position): Promise
 }
 
 export function openTypeToolkit(
-	extensionUri: vscode.Uri,
+	context: vscode.ExtensionContext,
 	lspClient: LanguageClient,
 	uri: vscode.Uri | undefined,
 	position: vscode.Position | undefined,
@@ -203,7 +203,7 @@ export function openTypeToolkit(
 		retainContextWhenHidden: true,
 	});
 
-	panel.webview.html = getHtml(panel.webview, extensionUri, nonce);
+	panel.webview.html = getHtml(panel.webview, context.extensionUri, nonce);
 
 	const saveSubscription = vscode.workspace.onDidSaveTextDocument((doc) => {
 		if (currentUri && doc.uri.toString() === currentUri.toString()) {
@@ -259,7 +259,8 @@ export function openTypeToolkit(
 		panel?.webview.postMessage({
 			type: "llmSettings",
 			settings: {
-				model: config.llmModel,
+				models: config.llmModels,
+				model: selectedModel(context, config),
 				baseUrl: config.llmBaseUrl,
 				maxTries: config.llmMaxTries,
 				timeoutCountsAsFail: config.llmTimeoutCountsAsFail,
@@ -286,6 +287,9 @@ export function openTypeToolkit(
 			await refreshCurrent();
 		} else if (message.type === "setTimeoutCountsAsFail") {
 			await config.setLlmTimeoutCountsAsFail(message.value);
+		} else if (message.type === "selectModel") {
+			await selectModel(context, message.model);
+			postLlmSettings();
 		} else if (message.type === "openLlmSettings") {
 			await vscode.commands.executeCommand("workbench.action.openSettings", "mlsem.llm");
 		} else if (message.type === "requestPreview") {

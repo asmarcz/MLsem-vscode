@@ -102,6 +102,20 @@ async function apiKey(context: vscode.ExtensionContext) {
 	return (await context.secrets.get(API_KEY)) ?? (await setApiKey(context));
 }
 
+// The model chosen in the type toolkit, kept for the user across sessions
+// and workspaces. When it is no longer in mlsem.llm.models, the first one.
+const SELECTED_MODEL = "mlsem.llm.selectedModel";
+
+export function selectedModel(context: vscode.ExtensionContext, config: Config): string | undefined {
+	const models = config.llmModels;
+	const chosen = context.globalState.get<string>(SELECTED_MODEL);
+	return chosen !== undefined && models.includes(chosen) ? chosen : models[0];
+}
+
+export function selectModel(context: vscode.ExtensionContext, model: string) {
+	return context.globalState.update(SELECTED_MODEL, model);
+}
+
 // The type part of each `val` line of [name] in [reply]. Lines for other names
 // are ignored; if there are only such lines, all of them are taken.
 export function parseVals(reply: string, name: string): string[] {
@@ -147,9 +161,9 @@ export async function inferTypeWithLlm(
 		vscode.window.showErrorMessage("Put the cursor in a definition of an MLsem file.");
 		return;
 	}
-	const model = config.llmModel;
+	const model = selectedModel(context, config);
 	if (!model) {
-		const open = await vscode.window.showErrorMessage("Set the model to use in mlsem.llm.model.", "Open settings");
+		const open = await vscode.window.showErrorMessage("Add the models to use to mlsem.llm.models.", "Open settings");
 		if (open) vscode.commands.executeCommand("workbench.action.openSettings", "mlsem.llm");
 		return;
 	}

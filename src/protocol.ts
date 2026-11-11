@@ -46,7 +46,10 @@ export function triesText(tries: number) {
 }
 
 export interface LlmSettings {
-	model: string;
+	// The models of mlsem.llm.models, and the one chosen (undefined when there
+	// are none).
+	models: string[];
+	model?: string;
 	baseUrl: string;
 	maxTries: number;
 	timeoutCountsAsFail: boolean;
@@ -80,6 +83,7 @@ export type WebviewToExtension =
 	// Run the LLM type inference on the panel's current target.
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
+	| { type: "selectModel"; model: string }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[] }
 	// [append]: add the result as new declaration line(s) instead of replacing.

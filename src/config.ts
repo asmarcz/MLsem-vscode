@@ -22,8 +22,11 @@ export class Config {
 		return this.cfg.get<string>("llm.baseUrl") || "https://api.openai.com/v1";
 	}
 
-	get llmModel(): string {
-		return this.cfg.get<string>("llm.model") ?? "";
+	// Without empty or repeated names, in the order given.
+	get llmModels(): string[] {
+		const models = this.cfg.get<unknown>("llm.models");
+		if (!Array.isArray(models)) return [];
+		return [...new Set(models.filter((m): m is string => typeof m === "string" && m.trim() !== ""))];
 	}
 
 	get llmMaxTries(): number {

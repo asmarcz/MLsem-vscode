@@ -139,6 +139,35 @@ body {
 	margin: 0 0 10px 0;
 }
 
+.llm-model {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 6px 0;
+}
+
+/* A dropdown in VS Code's colours. */
+.select {
+	min-width: 0;
+	max-width: 100%;
+	padding: 2px 4px;
+	background: var(--vscode-dropdown-background, var(--vscode-input-background));
+	color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
+	border: 1px solid var(--vscode-dropdown-border, var(--tk-border));
+	border-radius: var(--tk-radius);
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
+}
+
+.select:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.select:disabled {
+	opacity: 0.5;
+}
+
 /* A text button, like a link in VS Code's own views. */
 .link {
 	padding: 0;

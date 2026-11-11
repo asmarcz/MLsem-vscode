@@ -603,14 +603,33 @@ function LlmTool({ state }: { state: AppState }) {
 	const name = state.target;
 	return (
 		<>
+			{settings && settings.models.length > 0 && (
+				<label class="llm-model">
+					<span>Model</span>
+					<select
+						class="select"
+						value={settings.model}
+						disabled={running}
+						onChange={(e) =>
+							vscodeApi.postMessage({ type: "selectModel", model: (e.target as HTMLSelectElement).value })
+						}
+					>
+						{settings.models.map((m) => (
+							<option key={m} value={m}>
+								{m}
+							</option>
+						))}
+					</select>
+				</label>
+			)}
 			{settings && (
 				<p class="llm-settings">
-					{settings.model ? (
+					{settings.models.length > 0 ? (
 						<>
-							<code>{settings.model}</code> at <code>{settings.baseUrl}</code>, up to {settings.maxTries} tries.
+							At <code>{settings.baseUrl}</code>, up to {settings.maxTries} tries.
 						</>
 					) : (
-						"No model is set."
+						"No models are set."
 					)}{" "}
 					<button type="button" class="link" onClick={() => vscodeApi.postMessage({ type: "openLlmSettings" })}>
 						Settings
