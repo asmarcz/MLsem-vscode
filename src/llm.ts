@@ -23,11 +23,37 @@ interface Range {
 	end: { line: number; character: number };
 }
 
-// [line] is the definition's first line, 0-based. [fileFailure] is set when
-// the file's own typecheck timed out or crashed, in an unknown definition.
-type DefinitionAt =
-	| { ok: true; name: string; definition: string; line: number; fileFailure: string | null }
+// [line] is the definition's first line, 0-based.
+type DefinitionAt = { ok: true; name: string; definition: string; line: number } | { ok: false; error: string };
+
+// How the definition fares in the file's typecheck.
+type DefinitionStatus =
+	| { ok: true; status: "typed"; declared: boolean; types: string[] }
+	| { ok: true; status: "errors"; errors: string[] }
+	| { ok: true; status: "failed"; message: string }
+	| { ok: true; status: "unknown" }
 	| { ok: false; error: string };
+
+// The definition's status, as a paragraph of the prompt.
+function statusText(name: string, s: DefinitionStatus): string {
+	if (!s.ok) return "";
+	const vals = (types: string[]) => types.map((t) => `val ${name} : ${t}`).join("\n");
+	switch (s.status) {
+		case "typed":
+			return s.declared
+				? `It currently checks against its val line(s):\n\n${vals(s.types)}`
+				: `Without a val, MLsem currently infers this type for it:\n\n${vals(s.types)}`;
+		case "errors":
+			return `Typechecking it currently fails with:\n${s.errors.map((e) => `- ${e}`).join("\n")}`;
+		case "failed":
+			// TODO: the server does not know which definition the file's
+			// typecheck failed in (see [mark_failed] in the server), so this
+			// cannot say whether it is this one.
+			return `Typechecking this file as it is does not succeed: ${s.message}. It is not known in which definition.`;
+		case "unknown":
+			return "";
+	}
+}
 
 type CheckResult =
 	| { ok: true; edit: { range: Range; newText: string } }
@@ -144,20 +170,7 @@ export async function inferTypeWithLlm(
 	const openai = new OpenAI({ baseURL: config.llmBaseUrl, apiKey: key || "none" });
 	const maxTries = config.llmMaxTries;
 	const timeoutCountsAsFail = config.llmTimeoutCountsAsFail;
-	// TODO: the server does not know which definition the file's typecheck
-	// failed in (see [mark_failed] in the server), so this cannot say whether
-	// it is this one.
-	const status = def.fileFailure
-		? `\n\nTypechecking this file as it is does not succeed: ${def.fileFailure}. It is not known in which definition.`
-		: "";
-	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-		{ role: "system", content: SYSTEM_PROMPT },
-		{
-			role: "user",
-			// The whole file: a definition may use later ones that have a val.
-			content: `Here is the file:\n\n${text}${status}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}`,
-		},
-	];
+	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [{ role: "system", content: SYSTEM_PROMPT }];
 	output.info(`LLM: inferring the type of ${name} with ${model} at ${config.llmBaseUrl}`);
 
 	let tries = 0;
@@ -172,6 +185,25 @@ export async function inferTypeWithLlm(
 			async (progress, token): Promise<Outcome> => {
 				const abort = new AbortController();
 				token.onCancellationRequested(() => abort.abort());
+
+				// Typechecks the file unless the server already did, so it may
+				// take until the timeout.
+				progress.report({ message: "checking the definition" });
+				let status: DefinitionStatus;
+				try {
+					status = await client.sendRequest<DefinitionStatus>("mlsem/definitionStatus", at);
+				} catch (e) {
+					status = { ok: true, status: "failed", message: e instanceof Error ? e.message : String(e) };
+				}
+				if (token.isCancellationRequested) return { kind: "cancelled" };
+				const paragraph = statusText(name, status);
+				output.info(`LLM: status of ${name}: ${paragraph || "unknown"}`);
+				messages.push({
+					role: "user",
+					// The whole file: a definition may use later ones that have a val.
+					content: `Here is the file:\n\n${text}\n\nWrite the val line(s) for this definition of \`${name}\`, at line ${def.line + 1}:\n\n${def.definition}${paragraph ? `\n\n${paragraph}` : ""}`,
+				});
+
 				let errors: string[] = [];
 				while (tries < maxTries) {
 					tries++;
