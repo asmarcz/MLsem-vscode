@@ -160,19 +160,15 @@ body {
 
 .toggle {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	gap: 8px;
 	margin: 0 0 12px 0;
 	cursor: pointer;
 }
 
 .toggle input {
-	margin: 2px 0 0 0;
+	margin: 0;
 	accent-color: var(--vscode-focusBorder);
-}
-
-.toggle-hint {
-	display: block;
 }
 
 .llm-status {

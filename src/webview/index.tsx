@@ -616,7 +616,10 @@ function LlmTool({ state }: { state: AppState }) {
 					</button>
 				</p>
 			)}
-			<label class="toggle">
+			<label
+				class="toggle"
+				title="When on, an answer whose type check times out is sent back to the LLM like any rejected answer. When off, the inference stops at the first timeout."
+			>
 				<input
 					type="checkbox"
 					checked={settings?.timeoutCountsAsFail ?? true}
@@ -628,13 +631,7 @@ function LlmTool({ state }: { state: AppState }) {
 						})
 					}
 				/>
-				<span>
-					Count timeouts as failed tries
-					<span class="note toggle-hint">
-						When on, an answer whose type check times out is sent back to the LLM like any rejected answer. When off,
-						the inference stops at the first timeout.
-					</span>
-				</span>
+				<span>Count timeouts as failed tries</span>
 			</label>
 			<div class="btn-row">
 				<button
