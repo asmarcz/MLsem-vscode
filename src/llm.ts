@@ -61,6 +61,10 @@ type CheckResult =
 	| { ok: true; edit: { range: Range; newText: string } }
 	| { ok: false; errors?: string[]; error?: string };
 
+// TODO: say that a definition taking its arguments one at a time
+// (`let f x y = ...`) has a curried type ('a -> 'b -> 'c), not a tuple one.
+// Haiku copied the tuple style of `val (+) : (int, int) -> int` and needed a
+// second try on `bal`.
 const SYSTEM_PROMPT = `You write type signatures for MLsem, an ML-like language with set-theoretic types.
 
 Answer with only the declaration line(s) for the requested definition, one per line:
