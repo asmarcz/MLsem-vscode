@@ -200,24 +200,10 @@ body {
 	accent-color: var(--vscode-focusBorder);
 }
 
-/* Overload merging's mode: collapse or generalize. */
-.mode-row {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 16px;
-	margin: 0 0 12px 0;
-}
-
-.mode-option {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	cursor: pointer;
-}
-
-.mode-option input {
-	margin: 0;
-	accent-color: var(--vscode-focusBorder);
+/* Overload merging's two results, collapse and generalize, one under the
+   other, each with its preview and buttons. */
+.merge-result {
+	margin-top: 16px;
 }
 
 .generalize-status {

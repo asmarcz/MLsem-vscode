@@ -350,12 +350,13 @@ export function openTypeToolkit(
 			if (message.mode === "generalize") {
 				const g = await generalize(uri, message.name, message.overloadTexts);
 				if (!g.ok || g.type === undefined) {
-					panel?.webview.postMessage({ type: "preview", ok: false, error: g.error });
+					panel?.webview.postMessage({ type: "preview", mode: "generalize", ok: false, error: g.error });
 					return;
 				}
 				const check = await checkTypes(uri, position, [g.type]);
 				panel?.webview.postMessage({
 					type: "preview",
+					mode: "generalize",
 					ok: true,
 					text: g.text,
 					precision: g.precision,
@@ -369,7 +370,13 @@ export function openTypeToolkit(
 				overloadTexts: message.overloadTexts,
 				text: textOf(uri),
 			});
-			panel?.webview.postMessage({ type: "preview", ok: result.ok, text: result.text, error: result.error });
+			panel?.webview.postMessage({
+				type: "preview",
+				mode: "collapse",
+				ok: result.ok,
+				text: result.text,
+				error: result.error,
+			});
 		} else if (message.type === "apply" && message.mode === "generalize") {
 			// The generalized type is written through mlsem/checkSignature, which
 			// only returns an edit when the new declarations check.
@@ -378,7 +385,11 @@ export function openTypeToolkit(
 			if (!uri || !position) return;
 			const g = await generalize(uri, message.name, message.overloadTexts);
 			if (!g.ok || g.type === undefined) {
-				panel?.webview.postMessage({ type: "applied", error: g.error ?? "Could not generalize." });
+				panel?.webview.postMessage({
+					type: "applied",
+					mode: "generalize",
+					error: g.error ?? "Could not generalize.",
+				});
 				return;
 			}
 			const types = message.append
@@ -390,7 +401,7 @@ export function openTypeToolkit(
 			const applyError = check.ok
 				? await applyEditResult({ ok: true, uri: uri.toString(), edits: check.edit ? [check.edit] : [] })
 				: `The generalized type does not check: ${(check.errors ?? [check.error]).join("; ")}`;
-			panel?.webview.postMessage({ type: "applied", error: applyError });
+			panel?.webview.postMessage({ type: "applied", mode: "generalize", error: applyError });
 		} else if (message.type === "apply") {
 			const uri = currentUri;
 			if (!uri) return;
@@ -403,7 +414,7 @@ export function openTypeToolkit(
 				text: textOf(uri),
 			});
 			const applyError = await applyEditResult(result);
-			panel?.webview.postMessage({ type: "applied", error: applyError });
+			panel?.webview.postMessage({ type: "applied", mode: "collapse", error: applyError });
 		} else if (message.type === "requestInstantiatePreview") {
 			const uri = currentUri;
 			if (!uri) return;

@@ -55,11 +55,11 @@ interface AppState {
 	concreteTypes: string[];
 	// Overload texts picked for merging.
 	selected: string[];
+	// The two ways of merging the selected overloads, previewed side by side.
 	merge: ToolState<string>;
-	// Collapse or generalize. Kept across bindings, like the collapsed panes.
-	mergeMode: MergeMode;
-	// With generalize, what came with the preview: how it compares with
-	// collapsing, and whether the type checks.
+	generalize: ToolState<string>;
+	// What came with the generalize preview: how it compares with the
+	// overloads, and whether the type checks.
 	generalized: { precision: Precision | null; check: GeneralizeCheck } | null;
 	assignments: Assignments;
 	instantiate: ToolState<string[]>;
@@ -81,8 +81,7 @@ type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
 	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
-	| { type: "SET_MERGE_MODE"; mode: MergeMode }
-	| { type: "APPLYING" }
+	| { type: "APPLYING"; mode: MergeMode }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "INST_APPLYING" }
 	| { type: "INST_CLEAR_PREVIEW" };
@@ -94,7 +93,7 @@ const initialState: AppState = {
 	concreteTypes: [],
 	selected: [],
 	merge: initialToolState,
-	mergeMode: "collapse",
+	generalize: initialToolState,
 	generalized: null,
 	assignments: {},
 	instantiate: initialToolState,
@@ -148,7 +147,6 @@ function reducer(state: AppState, action: Action): AppState {
 					target: state.target,
 					overloadsFailure: action.reason ?? null,
 					collapsed: state.collapsed,
-					mergeMode: state.mergeMode,
 				};
 			}
 			const sameBinding = state.found && state.binding?.name === action.binding?.name;
@@ -171,6 +169,7 @@ function reducer(state: AppState, action: Action): AppState {
 				concreteTypes: action.concreteTypes,
 				selected: kept,
 				merge: { ...state.merge, preview: null, stale: kept.length < state.selected.length, error: null },
+				generalize: { ...state.generalize, preview: null, error: null },
 				generalized: null,
 				assignments,
 				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
@@ -187,25 +186,30 @@ function reducer(state: AppState, action: Action): AppState {
 		case "TOGGLE": {
 			const t = action.text;
 			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
-			return { ...state, selected, merge: { ...state.merge, preview: null, error: null }, generalized: null };
-		}
-		case "SET_MERGE_MODE":
 			return {
 				...state,
-				mergeMode: action.mode,
+				selected,
 				merge: { ...state.merge, preview: null, error: null },
+				generalize: { ...state.generalize, preview: null, error: null },
 				generalized: null,
 			};
+		}
 		case "preview":
+			if (action.mode === "collapse")
+				return { ...state, merge: withPreview(state.merge, action.ok, action.text, action.error) };
 			return {
 				...state,
-				merge: withPreview(state.merge, action.ok, action.text, action.error),
+				generalize: withPreview(state.generalize, action.ok, action.text, action.error),
 				generalized: action.ok && action.check ? { precision: action.precision ?? null, check: action.check } : null,
 			};
 		case "APPLYING":
-			return { ...state, merge: { ...state.merge, applying: true } };
+			return action.mode === "collapse"
+				? { ...state, merge: { ...state.merge, applying: true } }
+				: { ...state, generalize: { ...state.generalize, applying: true } };
 		case "applied":
-			return { ...state, merge: withApplied(state.merge, action.error) };
+			return action.mode === "collapse"
+				? { ...state, merge: withApplied(state.merge, action.error) }
+				: { ...state, generalize: withApplied(state.generalize, action.error) };
 		case "SET_ASSIGNMENT": {
 			const forOverload = { ...(state.assignments[action.overload] ?? {}) };
 			if (action.value === "") delete forOverload[action.variable];
@@ -300,88 +304,96 @@ function ActionRow({ titles, onApply, onReplace, onInsert, disabled, busy, class
 	);
 }
 
-// How the generalized type compares with collapsing the same overloads.
+// How the generalized type compares with the overloads it was made from.
 function PrecisionNote({ precision }: { precision: Precision }) {
 	switch (precision) {
-		case "more":
-			return <p class="note">More precise than collapsing.</p>;
+		case "stronger":
+			return <p class="note">Stronger than the overloads: it claims more than they do.</p>;
 		case "equivalent":
-			return <p class="note">Equivalent to collapsing: generalizing gains nothing here.</p>;
-		case "less":
-			return <p class="warning-note">Less precise than collapsing: collapse instead.</p>;
-		case "incomparable":
-			return <p class="warning-note">Neither more nor less precise than collapsing.</p>;
+			return <p class="note">Equivalent to the overloads, written as one type.</p>;
+		case "weaker":
+			return (
+				<p class="warning-note">Weaker than the overloads: they no longer follow from it, so information is lost.</p>
+			);
 	}
 }
 
+const APPLY_TITLES: Record<MergeMode, { apply: string; replace: string; insert: string }> = {
+	collapse: {
+		apply: "Replace the selected overloads with the collapsed type; keep the rest",
+		replace: "Replace ALL declarations with the collapsed type (drops the unselected overloads)",
+		insert: "Add the collapsed type as a new declaration, keeping every existing one",
+	},
+	generalize: {
+		apply: "Replace the selected overloads with the generalized type; keep the rest",
+		replace: "Replace ALL declarations with the generalized type (drops the unselected overloads)",
+		insert: "Add the generalized type as a new declaration, keeping every existing one",
+	},
+};
+
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const merge = state.merge;
-	const claimApply = useApplyGuard(merge.applying);
-
-	const generalize = state.mergeMode === "generalize";
+	const { merge, generalize } = state;
+	// One apply at a time: both write the same declarations.
+	const applying = merge.applying || generalize.applying;
+	const claimApply = useApplyGuard(applying);
 	const g = state.generalized;
-	// A generalized type that does not check is not written.
-	const blocked = generalize && g !== null && !g.check.ok;
 
-	// Request a merge preview whenever the selection or the mode changes and
-	// the selection is non-empty.
+	// Request both previews whenever the selection changes and is non-empty.
 	useEffect(() => {
 		if (state.selected.length === 0 || !state.binding) return;
-		vscodeApi.postMessage({
-			type: "requestPreview",
-			name: state.binding.name,
-			overloadTexts: state.selected,
-			mode: state.mergeMode,
-		});
-	}, [state.selected, state.binding, state.mergeMode]);
+		for (const mode of ["collapse", "generalize"] as const)
+			vscodeApi.postMessage({
+				type: "requestPreview",
+				name: state.binding.name,
+				overloadTexts: state.selected,
+				mode,
+			});
+	}, [state.selected, state.binding]);
 
-	// append=false,keepOthers=true → Apply (scoped: merged replaces the selected,
-	// the rest kept); append=false,keepOthers=false → Replace (full: merged only);
-	// append=true → Insert (merged appended, all existing kept).
-	function handleApply(append: boolean, keepOthers: boolean) {
+	// append=false,keepOthers=true → Apply (scoped: the result replaces the
+	// selected, the rest kept); append=false,keepOthers=false → Replace (full:
+	// the result only); append=true → Insert (the result appended, all existing
+	// kept).
+	function handleApply(mode: MergeMode, append: boolean, keepOthers: boolean) {
 		if (state.selected.length === 0 || !state.binding || !claimApply()) return;
-		dispatch({ type: "APPLYING" });
+		dispatch({ type: "APPLYING", mode });
 		vscodeApi.postMessage({
 			type: "apply",
 			name: state.binding.name,
 			overloadTexts: state.selected,
 			append,
 			keepOthers,
-			mode: state.mergeMode,
+			mode,
 			overloads: state.overloads.map((o) => o.text),
 		});
+	}
+
+	function actions(mode: MergeMode, tool: ToolState<string>, blocked: boolean) {
+		return (
+			<ActionRow
+				titles={APPLY_TITLES[mode]}
+				disabled={state.selected.length === 0 || applying || blocked || !tool.preview}
+				busy={tool.applying}
+				onApply={() => handleApply(mode, false, true)}
+				onReplace={() => handleApply(mode, false, false)}
+				onInsert={() => handleApply(mode, true, false)}
+			/>
+		);
+	}
+
+	function preview(tool: ToolState<string>, loading: string) {
+		return tool.preview ? (
+			<div class="surface code-text preview-block">{tool.preview}</div>
+		) : (
+			<div class="surface code-text preview-block preview-placeholder">
+				{state.selected.length === 0 ? "Select overloads to see a preview." : loading}
+			</div>
+		);
 	}
 
 	return (
 		<>
 			<p class="note tool-subtitle">Combine selected overloads into a single declared type.</p>
-			<div class="mode-row" role="radiogroup" aria-label="Merge mode">
-				{(
-					[
-						[
-							"collapse",
-							"Collapse",
-							"The smallest single arrow containing the overloads. Always holds, but loses which input gives which output.",
-						],
-						[
-							"generalize",
-							"Generalize",
-							"One polymorphic type whose instances are the overloads. Keeps which input gives which output, but claims more, so it is checked against the definition before it is written.",
-						],
-					] as const
-				).map(([mode, label, title]) => (
-					<label key={mode} class="mode-option" title={title}>
-						<input
-							type="radio"
-							name="merge-mode"
-							checked={state.mergeMode === mode}
-							onChange={() => dispatch({ type: "SET_MERGE_MODE", mode })}
-						/>
-						<span>{label}</span>
-					</label>
-				))}
-			</div>
-			{merge.error && <p class="error-note">{merge.error}</p>}
 			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
 				<div>
@@ -414,20 +426,29 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							</div>
 						))}
 					</div>
-					<div>
-						{merge.preview ? (
-							<div class="surface code-text preview-block">{merge.preview}</div>
-						) : (
-							<div class="surface code-text preview-block preview-placeholder">
-								{state.selected.length === 0
-									? "Select overloads to see a preview."
-									: generalize
-										? "Generalizing and checking…"
-										: "Loading preview…"}
-							</div>
-						)}
-						{generalize && g && (
+					<div class="merge-result">
+						<p
+							class="column-title"
+							title="The smallest single arrow containing the overloads. Always holds, but loses which input gives which output."
+						>
+							Collapse
+						</p>
+						{merge.error && <p class="error-note">{merge.error}</p>}
+						{preview(merge, "Loading preview…")}
+						{actions("collapse", merge, false)}
+					</div>
+					<div class="merge-result">
+						<p
+							class="column-title"
+							title="One polymorphic type whose instances are the overloads. Keeps which input gives which output, but claims more, so it is checked against the definition before it is written."
+						>
+							Generalize
+						</p>
+						{generalize.error && <p class="error-note">{generalize.error}</p>}
+						{preview(generalize, "Generalizing and checking…")}
+						{g && (
 							<div class="generalize-status">
+								{g.precision && <PrecisionNote precision={g.precision} />}
 								{g.check.ok ? (
 									<p class="note">Checks against the definition.</p>
 								) : (
@@ -440,22 +461,11 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 										))}
 									</>
 								)}
-								{g.precision && <PrecisionNote precision={g.precision} />}
 							</div>
 						)}
+						{/* A generalized type that does not check is not written. */}
+						{actions("generalize", generalize, g !== null && !g.check.ok)}
 					</div>
-					<ActionRow
-						titles={{
-							apply: "Replace the selected overloads with the merged type; keep the rest",
-							replace: "Replace ALL declarations with the merged type (drops the unselected overloads)",
-							insert: "Add the merged type as a new declaration, keeping every existing one",
-						}}
-						disabled={state.selected.length === 0 || merge.applying || blocked}
-						busy={merge.applying}
-						onApply={() => handleApply(false, true)}
-						onReplace={() => handleApply(false, false)}
-						onInsert={() => handleApply(true, false)}
-					/>
 				</div>
 			</div>
 		</>

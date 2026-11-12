@@ -6,10 +6,10 @@
 // "vscode". The LSP request/response shapes are a separate contract and stay in
 // mergePanel.ts.
 
-// How overload merging combines the selected overloads: collapse them into
-// the smallest single arrow containing them (loses precision), or generalize
-// them into a polymorphic type (keeps it, but has to check against the
-// definition).
+// The two ways overload merging combines the selected overloads, previewed
+// side by side: collapse them into the smallest single arrow containing them
+// (loses precision), or generalize them into a polymorphic type (keeps it,
+// but has to check against the definition).
 export type MergeMode = "collapse" | "generalize";
 
 // Whether a generalized type checks against the definition, with the errors
@@ -19,9 +19,10 @@ export interface GeneralizeCheck {
 	errors: string[];
 }
 
-// How a generalized type compares with collapsing the same overloads, by
-// subtyping both ways (allowing intersections of instances).
-export type Precision = "equivalent" | "more" | "less" | "incomparable";
+// How a generalized type compares with the overloads it was made from, by
+// subtyping both ways (allowing intersections of instances): the same type,
+// one that claims more, or one the overloads no longer follow from.
+export type Precision = "equivalent" | "stronger" | "weaker";
 
 export interface Binding {
 	name: string;
@@ -124,15 +125,17 @@ export type ExtensionToWebview =
 	  }
 	| {
 			type: "preview";
+			// Which of the two previews this is.
+			mode: MergeMode;
 			ok: boolean;
 			text?: string;
 			error?: string;
-			// Generalize only: how the result compares with collapsing, and
+			// Generalize only: how the result compares with the overloads, and
 			// the result of checking it against the definition.
 			precision?: Precision;
 			check?: GeneralizeCheck;
 	  }
-	| { type: "applied"; error?: string }
+	| { type: "applied"; mode: MergeMode; error?: string }
 	| { type: "instantiatePreview"; ok: boolean; overloads?: string[]; error?: string }
 	| { type: "instantiated"; error?: string }
 	| { type: "llmStatus"; status: LlmStatus }
