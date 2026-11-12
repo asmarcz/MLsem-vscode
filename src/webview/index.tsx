@@ -417,33 +417,30 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					))}
 				</div>
 				<div class="merge-area">
-					<p class="column-title">Merge area</p>
-					<div class="merge-list">
-						{state.selected.length === 0 && <p class="note note-absent empty-note">Select overloads on the left.</p>}
-						{state.selected.map((t) => (
-							<div key={t} class="surface code-text merge-item">
-								{t}
-							</div>
-						))}
-					</div>
 					<div class="merge-result">
-						<p
-							class="column-title"
-							title="The smallest single arrow containing the overloads. Always holds, but loses which input gives which output."
-						>
-							Collapse
-						</p>
+						<div class="result-head">
+							<p
+								class="result-title"
+								title="The smallest single arrow containing the overloads. Always holds, but loses which input gives which output."
+							>
+								Collapse
+							</p>
+							{actions("collapse", merge, false)}
+						</div>
 						{merge.error && <p class="error-note">{merge.error}</p>}
 						{preview(merge, "Loading preview…")}
-						{actions("collapse", merge, false)}
 					</div>
 					<div class="merge-result">
-						<p
-							class="column-title"
-							title="One polymorphic type whose instances are the overloads. Keeps which input gives which output, but claims more, so it is checked against the definition before it is written."
-						>
-							Generalize
-						</p>
+						<div class="result-head">
+							<p
+								class="result-title"
+								title="One polymorphic type whose instances are the overloads. Keeps which input gives which output, but claims more, so it is checked against the definition before it is written."
+							>
+								Generalize
+							</p>
+							{/* A generalized type that does not check is not written. */}
+							{actions("generalize", generalize, g !== null && !g.check.ok)}
+						</div>
 						{generalize.error && <p class="error-note">{generalize.error}</p>}
 						{preview(generalize, "Generalizing and checking…")}
 						{g && (
@@ -463,8 +460,6 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 								)}
 							</div>
 						)}
-						{/* A generalized type that does not check is not written. */}
-						{actions("generalize", generalize, g !== null && !g.check.ok)}
 					</div>
 				</div>
 			</div>

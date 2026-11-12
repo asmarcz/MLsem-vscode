@@ -97,7 +97,7 @@ body {
 }
 
 /* --- Primitives ---
-   Composed in the markup, e.g. class="surface code-text merge-item". They come
+   Composed in the markup, e.g. class="surface code-text overload-box". They come
    first so the specific classes below can override a declaration by source
    order without needing extra specificity. */
 
@@ -201,9 +201,19 @@ body {
 }
 
 /* Overload merging's two results, collapse and generalize, one under the
-   other, each with its preview and buttons. */
-.merge-result {
-	margin-top: 16px;
+   other: a title row carrying the buttons, then the preview. */
+.result-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px 8px;
+	margin-bottom: 6px;
+}
+
+.result-title {
+	margin: 0;
+	font-weight: 600;
 }
 
 .generalize-status {
@@ -400,19 +410,7 @@ body {
 .merge-area {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
-}
-
-.merge-list {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	min-height: 32px;
-}
-
-/* Tighter than the default surface padding — these are compact list rows. */
-.merge-item {
-	padding: 6px 10px;
+	gap: 14px;
 }
 
 /* Instantiate tool: one card per overload, fixed structure so the layout does
@@ -549,6 +547,11 @@ body {
 	cursor: pointer;
 	font-family: var(--vscode-font-family);
 	font-size: var(--vscode-font-size);
+}
+
+/* Smaller buttons where they share a title row. */
+.result-head .btn {
+	padding: 3px 10px;
 }
 
 .btn:disabled {
