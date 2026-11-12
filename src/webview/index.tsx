@@ -3,11 +3,13 @@ import { useEffect, useReducer, useRef } from "preact/hooks";
 import {
 	type Binding,
 	type ExtensionToWebview,
+	type GeneralizeCheck,
 	type Instantiation,
 	isFromExtension,
 	type LlmAttempt,
 	type LlmSettings,
 	type LlmStatus,
+	type MergeMode,
 	modelLabel,
 	type Overload,
 	sameModel,
@@ -53,6 +55,11 @@ interface AppState {
 	// Overload texts picked for merging.
 	selected: string[];
 	merge: ToolState<string>;
+	// Collapse or generalize. Kept across bindings, like the collapsed panes.
+	mergeMode: MergeMode;
+	// With generalize, what came with the preview: whether a variable links
+	// two positions, and whether the type checks.
+	generalized: { correlated: boolean; check: GeneralizeCheck } | null;
 	assignments: Assignments;
 	instantiate: ToolState<string[]>;
 	llmSettings: LlmSettings | null;
@@ -73,6 +80,7 @@ type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
 	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
+	| { type: "SET_MERGE_MODE"; mode: MergeMode }
 	| { type: "APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "INST_APPLYING" }
@@ -85,6 +93,8 @@ const initialState: AppState = {
 	concreteTypes: [],
 	selected: [],
 	merge: initialToolState,
+	mergeMode: "collapse",
+	generalized: null,
 	assignments: {},
 	instantiate: initialToolState,
 	llmSettings: null,
@@ -137,6 +147,7 @@ function reducer(state: AppState, action: Action): AppState {
 					target: state.target,
 					overloadsFailure: action.reason ?? null,
 					collapsed: state.collapsed,
+					mergeMode: state.mergeMode,
 				};
 			}
 			const sameBinding = state.found && state.binding?.name === action.binding?.name;
@@ -159,6 +170,7 @@ function reducer(state: AppState, action: Action): AppState {
 				concreteTypes: action.concreteTypes,
 				selected: kept,
 				merge: { ...state.merge, preview: null, stale: kept.length < state.selected.length, error: null },
+				generalized: null,
 				assignments,
 				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
 			};
@@ -174,10 +186,21 @@ function reducer(state: AppState, action: Action): AppState {
 		case "TOGGLE": {
 			const t = action.text;
 			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
-			return { ...state, selected, merge: { ...state.merge, preview: null, error: null } };
+			return { ...state, selected, merge: { ...state.merge, preview: null, error: null }, generalized: null };
 		}
+		case "SET_MERGE_MODE":
+			return {
+				...state,
+				mergeMode: action.mode,
+				merge: { ...state.merge, preview: null, error: null },
+				generalized: null,
+			};
 		case "preview":
-			return { ...state, merge: withPreview(state.merge, action.ok, action.text, action.error) };
+			return {
+				...state,
+				merge: withPreview(state.merge, action.ok, action.text, action.error),
+				generalized: action.ok && action.check ? { correlated: action.correlated ?? false, check: action.check } : null,
+			};
 		case "APPLYING":
 			return { ...state, merge: { ...state.merge, applying: true } };
 		case "applied":
@@ -280,11 +303,22 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	const merge = state.merge;
 	const claimApply = useApplyGuard(merge.applying);
 
-	// Request a merge preview whenever the selection changes and is non-empty.
+	const generalize = state.mergeMode === "generalize";
+	const g = state.generalized;
+	// A generalized type that does not check is not written.
+	const blocked = generalize && g !== null && !g.check.ok;
+
+	// Request a merge preview whenever the selection or the mode changes and
+	// the selection is non-empty.
 	useEffect(() => {
 		if (state.selected.length === 0 || !state.binding) return;
-		vscodeApi.postMessage({ type: "requestPreview", name: state.binding.name, overloadTexts: state.selected });
-	}, [state.selected, state.binding]);
+		vscodeApi.postMessage({
+			type: "requestPreview",
+			name: state.binding.name,
+			overloadTexts: state.selected,
+			mode: state.mergeMode,
+		});
+	}, [state.selected, state.binding, state.mergeMode]);
 
 	// append=false,keepOthers=true → Apply (scoped: merged replaces the selected,
 	// the rest kept); append=false,keepOthers=false → Replace (full: merged only);
@@ -298,12 +332,40 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 			overloadTexts: state.selected,
 			append,
 			keepOthers,
+			mode: state.mergeMode,
+			overloads: state.overloads.map((o) => o.text),
 		});
 	}
 
 	return (
 		<>
 			<p class="note tool-subtitle">Combine selected overloads into a single declared type.</p>
+			<div class="mode-row" role="radiogroup" aria-label="Merge mode">
+				{(
+					[
+						[
+							"collapse",
+							"Collapse",
+							"The smallest single arrow containing the overloads. Always holds, but loses which input gives which output.",
+						],
+						[
+							"generalize",
+							"Generalize",
+							"One polymorphic type whose instances are the overloads. Keeps which input gives which output, but claims more, so it is checked against the definition before it is written.",
+						],
+					] as const
+				).map(([mode, label, title]) => (
+					<label key={mode} class="mode-option" title={title}>
+						<input
+							type="radio"
+							name="merge-mode"
+							checked={state.mergeMode === mode}
+							onChange={() => dispatch({ type: "SET_MERGE_MODE", mode })}
+						/>
+						<span>{label}</span>
+					</label>
+				))}
+			</div>
 			{merge.error && <p class="error-note">{merge.error}</p>}
 			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
@@ -342,7 +404,30 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							<div class="surface code-text preview-block">{merge.preview}</div>
 						) : (
 							<div class="surface code-text preview-block preview-placeholder">
-								{state.selected.length === 0 ? "Select overloads to see a preview." : "Loading preview…"}
+								{state.selected.length === 0
+									? "Select overloads to see a preview."
+									: generalize
+										? "Generalizing and checking…"
+										: "Loading preview…"}
+							</div>
+						)}
+						{generalize && g && (
+							<div class="generalize-status">
+								{g.check.ok ? (
+									<p class="note">Checks against the definition.</p>
+								) : (
+									<>
+										<p class="error-note">Does not check against the definition, so it cannot be written.</p>
+										{g.check.errors.map((e) => (
+											<p key={e} class="surface code-text preview-lines">
+												{e}
+											</p>
+										))}
+									</>
+								)}
+								{!g.correlated && (
+									<p class="note">No type variable links two positions: this is the same as collapsing.</p>
+								)}
 							</div>
 						)}
 					</div>
@@ -352,7 +437,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							replace: "Replace ALL declarations with the merged type (drops the unselected overloads)",
 							insert: "Add the merged type as a new declaration, keeping every existing one",
 						}}
-						disabled={state.selected.length === 0 || merge.applying}
+						disabled={state.selected.length === 0 || merge.applying || blocked}
 						busy={merge.applying}
 						onApply={() => handleApply(false, true)}
 						onReplace={() => handleApply(false, false)}

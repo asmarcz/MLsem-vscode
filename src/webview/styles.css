@@ -200,6 +200,37 @@ body {
 	accent-color: var(--vscode-focusBorder);
 }
 
+/* Overload merging's mode: collapse or generalize. */
+.mode-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+	margin: 0 0 12px 0;
+}
+
+.mode-option {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+}
+
+.mode-option input {
+	margin: 0;
+	accent-color: var(--vscode-focusBorder);
+}
+
+.generalize-status {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.generalize-status p {
+	margin: 0;
+}
+
 .llm-status {
 	margin: 10px 0 0 0;
 }

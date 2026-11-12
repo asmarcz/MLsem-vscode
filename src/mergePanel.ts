@@ -22,6 +22,22 @@ interface MergePreviewResult {
 	error?: string;
 }
 
+interface GeneralizePreviewResult {
+	ok: boolean;
+	text?: string;
+	type?: string;
+	correlated?: boolean;
+	stale?: boolean;
+	error?: string;
+}
+
+interface CheckSignatureResult {
+	ok: boolean;
+	edit?: { range: EditRange; newText: string };
+	errors?: string[];
+	error?: string;
+}
+
 interface EditRange {
 	start: { line: number; character: number };
 	end: { line: number; character: number };
@@ -150,6 +166,38 @@ async function definitionAt(uri: vscode.Uri, position: vscode.Position): Promise
 		return result.ok ? result.name : undefined;
 	} catch {
 		return undefined;
+	}
+}
+
+// The selected overloads of [name] generalized into one polymorphic type.
+async function generalize(uri: vscode.Uri, name: string, overloadTexts: string[]): Promise<GeneralizePreviewResult> {
+	if (!client) return { ok: false, error: "The MLsem server is not running." };
+	try {
+		const result = await client.sendRequest<GeneralizePreviewResult>("mlsem/generalizePreview", {
+			textDocument: { uri: uri.toString() },
+			name,
+			overloadTexts,
+			text: textOf(uri),
+		});
+		return result.stale ? { ok: false, error: "The types changed; select the overloads again." } : result;
+	} catch (e) {
+		return { ok: false, error: String(e) };
+	}
+}
+
+// Check [types] as the declarations of the definition at [position]. On
+// success the result carries the edit that writes them.
+async function checkTypes(uri: vscode.Uri, position: vscode.Position, types: string[]): Promise<CheckSignatureResult> {
+	if (!client) return { ok: false, error: "The MLsem server is not running." };
+	try {
+		return await client.sendRequest<CheckSignatureResult>("mlsem/checkSignature", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+			types,
+		});
+	} catch (e) {
+		return { ok: false, error: String(e) };
 	}
 }
 
@@ -297,7 +345,24 @@ export function openTypeToolkit(
 			// Snapshot the target so cursor-follow retargeting mid-request can't
 			// switch which document/binding this reply refers to.
 			const uri = currentUri;
-			if (!uri) return;
+			const position = currentPosition;
+			if (!uri || !position) return;
+			if (message.mode === "generalize") {
+				const g = await generalize(uri, message.name, message.overloadTexts);
+				if (!g.ok || g.type === undefined) {
+					panel?.webview.postMessage({ type: "preview", ok: false, error: g.error });
+					return;
+				}
+				const check = await checkTypes(uri, position, [g.type]);
+				panel?.webview.postMessage({
+					type: "preview",
+					ok: true,
+					text: g.text,
+					correlated: g.correlated,
+					check: { ok: check.ok, errors: check.errors ?? (check.error ? [check.error] : []) },
+				});
+				return;
+			}
 			const result = await client.sendRequest<MergePreviewResult>("mlsem/mergePreview", {
 				textDocument: { uri: uri.toString() },
 				name: message.name,
@@ -305,6 +370,27 @@ export function openTypeToolkit(
 				text: textOf(uri),
 			});
 			panel?.webview.postMessage({ type: "preview", ok: result.ok, text: result.text, error: result.error });
+		} else if (message.type === "apply" && message.mode === "generalize") {
+			// The generalized type is written through mlsem/checkSignature, which
+			// only returns an edit when the new declarations check.
+			const uri = currentUri;
+			const position = currentPosition;
+			if (!uri || !position) return;
+			const g = await generalize(uri, message.name, message.overloadTexts);
+			if (!g.ok || g.type === undefined) {
+				panel?.webview.postMessage({ type: "applied", error: g.error ?? "Could not generalize." });
+				return;
+			}
+			const types = message.append
+				? [...message.overloads, g.type]
+				: message.keepOthers
+					? [g.type, ...message.overloads.filter((o) => !message.overloadTexts.includes(o))]
+					: [g.type];
+			const check = await checkTypes(uri, position, types);
+			const applyError = check.ok
+				? await applyEditResult({ ok: true, uri: uri.toString(), edits: check.edit ? [check.edit] : [] })
+				: `The generalized type does not check: ${(check.errors ?? [check.error]).join("; ")}`;
+			panel?.webview.postMessage({ type: "applied", error: applyError });
 		} else if (message.type === "apply") {
 			const uri = currentUri;
 			if (!uri) return;

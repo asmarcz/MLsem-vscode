@@ -6,6 +6,19 @@
 // "vscode". The LSP request/response shapes are a separate contract and stay in
 // mergePanel.ts.
 
+// How overload merging combines the selected overloads: collapse them into
+// the smallest single arrow containing them (loses precision), or generalize
+// them into a polymorphic type (keeps it, but has to check against the
+// definition).
+export type MergeMode = "collapse" | "generalize";
+
+// Whether a generalized type checks against the definition, with the errors
+// located in it when it does not.
+export interface GeneralizeCheck {
+	ok: boolean;
+	errors: string[];
+}
+
 export interface Binding {
 	name: string;
 	declared: boolean;
@@ -105,7 +118,17 @@ export type ExtensionToWebview =
 			// document's typecheck timed out).
 			reason?: string;
 	  }
-	| { type: "preview"; ok: boolean; text?: string; error?: string }
+	| {
+			type: "preview";
+			ok: boolean;
+			text?: string;
+			error?: string;
+			// Generalize only: whether a variable links two positions (else the
+			// result is no more precise than collapsing), and the result of
+			// checking the type against the definition.
+			correlated?: boolean;
+			check?: GeneralizeCheck;
+	  }
 	| { type: "applied"; error?: string }
 	| { type: "instantiatePreview"; ok: boolean; overloads?: string[]; error?: string }
 	| { type: "instantiated"; error?: string }
@@ -123,11 +146,20 @@ export type WebviewToExtension =
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
-	| { type: "requestPreview"; name: string; overloadTexts: string[] }
+	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
 	// [append]: add the result as new declaration line(s) instead of replacing.
 	// [keepOthers]: on replace, keep the unselected overloads (scoped Apply)
-	// rather than dropping them (full Replace).
-	| { type: "apply"; name: string; overloadTexts: string[]; append: boolean; keepOthers: boolean }
+	// rather than dropping them (full Replace). [overloads]: every overload, in
+	// order, which generalize writes back around its result.
+	| {
+			type: "apply";
+			name: string;
+			overloadTexts: string[];
+			append: boolean;
+			keepOthers: boolean;
+			mode: MergeMode;
+			overloads: string[];
+	  }
 	| { type: "requestInstantiatePreview"; name: string; instantiations: Instantiation[] }
 	// [only]: restrict the written result to these overload texts (per-overload
 	// Insert writes a single one). Absent/undefined means all.
