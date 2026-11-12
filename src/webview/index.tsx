@@ -12,6 +12,7 @@ import {
 	type MergeMode,
 	modelLabel,
 	type Overload,
+	type Precision,
 	sameModel,
 	triesText,
 	type WebviewToExtension,
@@ -57,9 +58,9 @@ interface AppState {
 	merge: ToolState<string>;
 	// Collapse or generalize. Kept across bindings, like the collapsed panes.
 	mergeMode: MergeMode;
-	// With generalize, what came with the preview: whether a variable links
-	// two positions, and whether the type checks.
-	generalized: { correlated: boolean; check: GeneralizeCheck } | null;
+	// With generalize, what came with the preview: how it compares with
+	// collapsing, and whether the type checks.
+	generalized: { precision: Precision | null; check: GeneralizeCheck } | null;
 	assignments: Assignments;
 	instantiate: ToolState<string[]>;
 	llmSettings: LlmSettings | null;
@@ -199,7 +200,7 @@ function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				merge: withPreview(state.merge, action.ok, action.text, action.error),
-				generalized: action.ok && action.check ? { correlated: action.correlated ?? false, check: action.check } : null,
+				generalized: action.ok && action.check ? { precision: action.precision ?? null, check: action.check } : null,
 			};
 		case "APPLYING":
 			return { ...state, merge: { ...state.merge, applying: true } };
@@ -297,6 +298,20 @@ function ActionRow({ titles, onApply, onReplace, onInsert, disabled, busy, class
 			</button>
 		</div>
 	);
+}
+
+// How the generalized type compares with collapsing the same overloads.
+function PrecisionNote({ precision }: { precision: Precision }) {
+	switch (precision) {
+		case "more":
+			return <p class="note">More precise than collapsing.</p>;
+		case "equivalent":
+			return <p class="note">Equivalent to collapsing: generalizing gains nothing here.</p>;
+		case "less":
+			return <p class="warning-note">Less precise than collapsing: collapse instead.</p>;
+		case "incomparable":
+			return <p class="warning-note">Neither more nor less precise than collapsing.</p>;
+	}
 }
 
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
@@ -425,9 +440,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 										))}
 									</>
 								)}
-								{!g.correlated && (
-									<p class="note">No type variable links two positions: this is the same as collapsing.</p>
-								)}
+								{g.precision && <PrecisionNote precision={g.precision} />}
 							</div>
 						)}
 					</div>

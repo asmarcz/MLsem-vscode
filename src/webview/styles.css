@@ -608,6 +608,10 @@ body {
 	margin-bottom: 4px;
 }
 
+.warning-note {
+	color: var(--vscode-editorWarning-foreground);
+}
+
 .error-note {
 	margin: 0 0 8px 0;
 	padding: 6px 10px;

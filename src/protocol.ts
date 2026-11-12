@@ -19,6 +19,10 @@ export interface GeneralizeCheck {
 	errors: string[];
 }
 
+// How a generalized type compares with collapsing the same overloads, by
+// subtyping both ways (allowing intersections of instances).
+export type Precision = "equivalent" | "more" | "less" | "incomparable";
+
 export interface Binding {
 	name: string;
 	declared: boolean;
@@ -123,10 +127,9 @@ export type ExtensionToWebview =
 			ok: boolean;
 			text?: string;
 			error?: string;
-			// Generalize only: whether a variable links two positions (else the
-			// result is no more precise than collapsing), and the result of
-			// checking the type against the definition.
-			correlated?: boolean;
+			// Generalize only: how the result compares with collapsing, and
+			// the result of checking it against the definition.
+			precision?: Precision;
 			check?: GeneralizeCheck;
 	  }
 	| { type: "applied"; error?: string }

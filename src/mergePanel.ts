@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
 import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
-import type { ExtensionToWebview, WebviewToExtension } from "./protocol";
+import type { ExtensionToWebview, Precision, WebviewToExtension } from "./protocol";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
 
@@ -26,7 +26,7 @@ interface GeneralizePreviewResult {
 	ok: boolean;
 	text?: string;
 	type?: string;
-	correlated?: boolean;
+	precision?: Precision;
 	stale?: boolean;
 	error?: string;
 }
@@ -358,7 +358,7 @@ export function openTypeToolkit(
 					type: "preview",
 					ok: true,
 					text: g.text,
-					correlated: g.correlated,
+					precision: g.precision,
 					check: { ok: check.ok, errors: check.errors ?? (check.error ? [check.error] : []) },
 				});
 				return;
