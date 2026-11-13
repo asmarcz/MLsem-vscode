@@ -18,10 +18,12 @@ import {
 	modelLabel,
 	type Overload,
 	type Precision,
+	type ResolvePreview,
 	sameModel,
 	type TokenStyle,
 	triesText,
 	type WebviewToExtension,
+	type WidenPart,
 } from "../protocol";
 import { Code, TokenColors } from "./highlight";
 import css from "./styles.css";
@@ -62,9 +64,11 @@ interface AppState {
 	concreteTypes: string[];
 	// Overload texts picked for merging.
 	selected: string[];
-	// The two ways of merging the selected overloads, previewed side by side.
+	// The two ways of merging the selected overloads, previewed side by side,
+	// and resolving their overlap.
 	merge: ToolState<string>;
 	generalize: ToolState<string>;
+	resolve: ToolState<ResolvePreview>;
 	// What came with the generalize preview: how it compares with the
 	// overloads, and whether the type checks.
 	generalized: { precision: Precision | null; check: GeneralizeCheck } | null;
@@ -83,6 +87,9 @@ interface AppState {
 	holes: HoleLine[];
 	selectedHoles: string[];
 	extract: ExtractState;
+	// The part of a val type at the editor's selection and its wider types,
+	// or why there is none.
+	widen: { part: WidenPart | null; reason: string | null; applying: boolean; error: string | null };
 	// The editor theme's style for each MLsem scope, for highlighting.
 	tokenColors: Record<string, TokenStyle>;
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
@@ -107,7 +114,9 @@ function extractKey(line: number, key: string) {
 	return `${line}\n${key}`;
 }
 
-type SectionId = "holes" | "extract" | "merge" | "instantiate" | "llm";
+type SectionId = "holes" | "extract" | "widen" | "merge" | "instantiate" | "llm";
+
+const SECTION_IDS: SectionId[] = ["holes", "extract", "widen", "merge", "instantiate", "llm"];
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
@@ -117,7 +126,9 @@ type Action =
 	| { type: "TOGGLE_EXTRACT"; line: number; key: string }
 	| { type: "SET_EXTRACT_NAME"; line: number; key: string; name: string }
 	| { type: "EXTRACT_APPLYING" }
+	| { type: "WIDEN_APPLYING" }
 	| { type: "APPLYING"; mode: MergeMode }
+	| { type: "RESOLVE_APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "SET_ASSIGNMENTS"; overload: string; values: Record<string, string> }
 	| { type: "INST_APPLYING" }
@@ -131,6 +142,7 @@ const initialState: AppState = {
 	selected: [],
 	merge: initialToolState,
 	generalize: initialToolState,
+	resolve: initialToolState,
 	generalized: null,
 	assignments: {},
 	instantiate: initialToolState,
@@ -141,8 +153,9 @@ const initialState: AppState = {
 	holes: [],
 	selectedHoles: [],
 	extract: initialExtract,
+	widen: { part: null, reason: null, applying: false, error: null },
 	tokenColors: {},
-	collapsed: { holes: false, extract: false, merge: false, instantiate: false, llm: false },
+	collapsed: { holes: false, extract: false, widen: false, merge: false, instantiate: false, llm: false },
 };
 
 // Drop assignment entries for overloads that no longer exist; report whether
@@ -189,6 +202,8 @@ function reducer(state: AppState, action: Action): AppState {
 					overloadsFailure: action.reason ?? null,
 					// From the parse, sent before the overloads.
 					extract: state.extract,
+					// Not about the binding.
+					widen: state.widen,
 					tokenColors: state.tokenColors,
 					collapsed: state.collapsed,
 				};
@@ -214,6 +229,7 @@ function reducer(state: AppState, action: Action): AppState {
 				selected: kept,
 				merge: { ...state.merge, preview: null, stale: kept.length < state.selected.length, error: null },
 				generalize: { ...state.generalize, preview: null, error: null },
+				resolve: { ...state.resolve, preview: null, error: null },
 				generalized: null,
 				assignments,
 				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
@@ -223,13 +239,22 @@ function reducer(state: AppState, action: Action): AppState {
 			return { ...state, collapsed: { ...state.collapsed, [action.id]: !state.collapsed[action.id] } };
 		case "tokenColors":
 			return { ...state, tokenColors: action.colors };
-		case "setAllCollapsed": {
-			const ids: SectionId[] = ["holes", "extract", "merge", "instantiate", "llm"];
+		case "setAllCollapsed":
 			return {
 				...state,
-				collapsed: Object.fromEntries(ids.map((id) => [id, action.collapsed])) as AppState["collapsed"],
+				collapsed: Object.fromEntries(SECTION_IDS.map((id) => [id, action.collapsed])) as AppState["collapsed"],
 			};
-		}
+		case "widen":
+			// [applying] survives: the extension refreshes before it reports the
+			// edit done.
+			return {
+				...state,
+				widen: { ...state.widen, part: action.part, reason: action.reason ?? null, error: null },
+			};
+		case "WIDEN_APPLYING":
+			return { ...state, widen: { ...state.widen, applying: true, error: null } };
+		case "widened":
+			return { ...state, widen: { ...state.widen, applying: false, error: action.error ?? null } };
 		case "llmSettings":
 			return { ...state, llmSettings: action.settings };
 		case "llmStatus":
@@ -300,9 +325,16 @@ function reducer(state: AppState, action: Action): AppState {
 				selected,
 				merge: { ...state.merge, preview: null, error: null },
 				generalize: { ...state.generalize, preview: null, error: null },
+				resolve: { ...state.resolve, preview: null, error: null },
 				generalized: null,
 			};
 		}
+		case "resolvePreview":
+			return { ...state, resolve: withPreview(state.resolve, action.ok, action.preview, action.error) };
+		case "RESOLVE_APPLYING":
+			return { ...state, resolve: { ...state.resolve, applying: true } };
+		case "resolved":
+			return { ...state, resolve: withApplied(state.resolve, action.error) };
 		case "preview":
 			if (action.mode === "collapse")
 				return { ...state, merge: withPreview(state.merge, action.ok, action.text, action.error) };
@@ -446,13 +478,14 @@ const APPLY_TITLES: Record<MergeMode, { apply: string; replace: string; insert: 
 };
 
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const { merge, generalize } = state;
-	// One apply at a time: both write the same declarations.
-	const applying = merge.applying || generalize.applying;
+	const { merge, generalize, resolve } = state;
+	// One apply at a time: all write the same declarations.
+	const applying = merge.applying || generalize.applying || resolve.applying;
 	const claimApply = useApplyGuard(applying);
 	const g = state.generalized;
+	const r = resolve.preview;
 
-	// Request both previews whenever the selection changes and is non-empty.
+	// Request the previews whenever the selection changes and is non-empty.
 	useEffect(() => {
 		if (state.selected.length === 0 || !state.binding) return;
 		for (const mode of ["collapse", "generalize"] as const)
@@ -462,7 +495,14 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 				overloadTexts: state.selected,
 				mode,
 			});
+		vscodeApi.postMessage({ type: "requestResolve", name: state.binding.name, overloadTexts: state.selected });
 	}, [state.selected, state.binding]);
+
+	function handleResolve() {
+		if (state.selected.length === 0 || !state.binding || !claimApply()) return;
+		dispatch({ type: "RESOLVE_APPLYING" });
+		vscodeApi.postMessage({ type: "applyResolve", name: state.binding.name, overloadTexts: state.selected });
+	}
 
 	// append=false,keepOthers=true → Apply (scoped: the result replaces the
 	// selected, the rest kept); append=false,keepOthers=false → Replace (full:
@@ -512,7 +552,9 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 
 	return (
 		<>
-			<p class="note tool-subtitle">Combine selected overloads into a single declared type.</p>
+			<p class="note tool-subtitle">
+				Combine the selected overloads into a single declared type, or make their domains disjoint.
+			</p>
 			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
 				<div>
@@ -570,6 +612,48 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 									</p>
 								))}
 							</div>
+						)}
+					</div>
+					<div class="merge-result">
+						<div class="result-head">
+							<p
+								class="result-title"
+								title="Make the domains disjoint as first-match pattern matching does: each domain minus those of the overloads before it. A domain strictly inside another goes first; otherwise the order of the val lines."
+							>
+								Resolve overlap
+							</p>
+							<button
+								class="btn btn-primary"
+								type="button"
+								title="Rewrite the domains of the val lines"
+								disabled={state.selected.length === 0 || applying || !r || r.changed === 0}
+								onClick={handleResolve}
+							>
+								Apply
+							</button>
+						</div>
+						{resolve.error && <p class="error-note">{resolve.error}</p>}
+						{r ? (
+							<>
+								<div class="surface code-text preview-block preview-lines">
+									{r.lines.map((line, i) => (
+										// Keyed by position: lines are in file order.
+										<div key={i}>
+											<Code text={line} />
+										</div>
+									))}
+								</div>
+								{r.changed === 0 && <p class="note">The selected domains do not overlap.</p>}
+								{r.unreachable.length > 0 && (
+									<p class="note stale-note">Covered by the others, so unreachable: {r.unreachable.join("; ")}</p>
+								)}
+							</>
+						) : (
+							!resolve.error && (
+								<div class="surface code-text preview-block preview-placeholder">
+									{state.selected.length === 0 ? "Select overloads to see a preview." : "Loading preview…"}
+								</div>
+							)
 						)}
 					</div>
 				</div>
@@ -855,6 +939,59 @@ function HoleText({
 // or once per overload of its result when they disagree on its holes. Fill
 // writes a row's selected holes, and is disabled until one is selected; Fill
 // all writes every hole of the lines with a single row.
+// The val line with [text] in place of the widen part, that text marked.
+function WidenLine({ part, text }: { part: WidenPart; text: string }) {
+	return (
+		<>
+			<Code text={part.lineText.slice(0, part.start)} />
+			<span class="widen-mark">
+				<Code text={text} />
+			</span>
+			<Code text={part.lineText.slice(part.end)} />
+		</>
+	);
+}
+
+// The smallest part of a val type containing the editor's selection (or
+// cursor), then the line with each wider type in its place, tightest first.
+function WidenTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
+	const { part, applying, error } = state.widen;
+	const claimApply = useApplyGuard(applying);
+	if (!part) return null;
+	const apply = (text: string) => {
+		if (!claimApply()) return;
+		dispatch({ type: "WIDEN_APPLYING" });
+		vscodeApi.postMessage({ type: "applyWiden", text });
+	};
+	return (
+		<>
+			<p class="note tool-subtitle">Replace the part of a val type at the selection or cursor with a wider type.</p>
+			{error && <p class="error-note">{error}</p>}
+			<div class="hole-line">
+				<div class="surface code-text preview-block">
+					<WidenLine part={part} text={part.part} />
+				</div>
+				{part.candidates.map((c) => (
+					<div key={c} class="hole-filled-row">
+						<div class="surface code-text preview-block">
+							<WidenLine part={part} text={c} />
+						</div>
+						<button
+							class="btn btn-secondary"
+							type="button"
+							title={`Write ${c} in place of ${part.part}`}
+							disabled={applying}
+							onClick={() => apply(c)}
+						>
+							Apply
+						</button>
+					</div>
+				))}
+			</div>
+		</>
+	);
+}
+
 function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const fill = (holes?: { line: number; row: number; start: number }[]) =>
 		vscodeApi.postMessage({ type: "fillHoles", holes });
@@ -1391,6 +1528,15 @@ function App() {
 
 	// Why a tool has nothing to work on, if so.
 	const noTarget = state.target ? undefined : "no definition at the cursor";
+	// The server's reason is a sentence; the label is a phrase.
+	const widenReason = state.widen.reason?.replace(/\.$/, "");
+	const noWiden = state.widen.part
+		? state.widen.part.candidates.length > 0
+			? undefined
+			: "nothing wider"
+		: widenReason
+			? widenReason.charAt(0).toLowerCase() + widenReason.slice(1)
+			: "no part of a val type selected";
 	const noOverloads =
 		noTarget ??
 		(state.found ? undefined : state.overloadsFailure ? `failed: ${state.overloadsFailure}` : "does not typecheck");
@@ -1417,6 +1563,9 @@ function App() {
 					}
 				>
 					<ExtractTool state={state} dispatch={dispatch} />
+				</Section>
+				<Section id="widen" title="Widen" state={state} dispatch={dispatch} unavailable={noWiden}>
+					<WidenTool state={state} dispatch={dispatch} />
 				</Section>
 				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch} unavailable={noOverloads}>
 					<MergeTool state={state} dispatch={dispatch} />

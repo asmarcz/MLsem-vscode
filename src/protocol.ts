@@ -41,6 +41,26 @@ export interface Overload {
 	instances: CallInstance[];
 }
 
+// The binding's val lines with the selected overloads' overlap resolved,
+// how many changed, and the selected ones the others cover (unreachable).
+export interface ResolvePreview {
+	lines: string[];
+	changed: number;
+	unreachable: string[];
+}
+
+// A part of a val line's type, at [start, end) of line [line] whose text is
+// [lineText] (parentheses around it included), and the wider types for it,
+// tightest first, as written in its place.
+export interface WidenPart {
+	part: string;
+	line: number;
+	start: number;
+	end: number;
+	lineText: string;
+	candidates: string[];
+}
+
 // An instance of an overload: a type per variable, and the calls using it
 // (0-based line and the call's text).
 export interface CallInstance {
@@ -233,6 +253,13 @@ export type ExtensionToWebview =
 			linksHoles?: boolean;
 	  }
 	| { type: "extracted"; error?: string }
+	// The part of a val line's type at the editor's selection or cursor, and
+	// the wider types for it; or why there is none.
+	| { type: "widen"; part: WidenPart | null; reason?: string }
+	| { type: "widened"; error?: string }
+	// The selected overloads with their overlap resolved.
+	| { type: "resolvePreview"; ok: boolean; preview?: ResolvePreview; error?: string }
+	| { type: "resolved"; error?: string }
 	// From the panel's title bar buttons.
 	| { type: "setAllCollapsed"; collapsed: boolean }
 	// The active theme's style for each scope of the MLsem grammar. Sent on
@@ -252,6 +279,11 @@ export type WebviewToExtension =
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
 	| { type: "applyExtract"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
+	// Replace the widen tool's part with [text].
+	| { type: "applyWiden"; text: string }
+	// Preview, or write, the selected overloads with their overlap resolved.
+	| { type: "requestResolve"; name: string; overloadTexts: string[] }
+	| { type: "applyResolve"; name: string; overloadTexts: string[] }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
@@ -294,6 +326,10 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	extractGroups: true,
 	extractPreview: true,
 	extracted: true,
+	widen: true,
+	widened: true,
+	resolvePreview: true,
+	resolved: true,
 	setAllCollapsed: true,
 	tokenColors: true,
 };

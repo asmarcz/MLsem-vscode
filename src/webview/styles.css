@@ -678,6 +678,13 @@ body {
 	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
 }
 
+/* Widen: the part and the type written in its place, marked alike. */
+.widen-mark {
+	padding: 0 2px;
+	border-radius: var(--tk-radius);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
+}
+
 .hole:hover {
 	border-color: var(--tk-border-strong);
 }
