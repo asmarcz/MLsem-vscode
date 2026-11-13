@@ -686,25 +686,47 @@ body {
 	outline: 1px solid var(--vscode-focusBorder);
 }
 
-/* An anchor brackets its occurrence from below: a line in its row whose
-   ends turn up to the text, so a part inside another is a bracket inside
-   its bracket. The markup sets [top] and [height] from the row's index. A
-   chosen part's lines are thicker. */
+/* An anchor underlines its occurrence, both ends slanting up and out: a
+   bottom line, and each end a vertical line skewed from its foot. The
+   markup sets [color]. A chosen part's lines are thicker. */
 .extract-block {
-	--anchor-row: 20px;
-	--anchor-depth: 12px;
+	--anchor-line: 1.5px;
+}
+
+.anchor-row.chosen {
+	--anchor-line: 2.5px;
 }
 
 .anchor {
 	position: absolute;
-	border: 1.5px solid;
-	border-top: none;
-	border-radius: 0 0 3px 3px;
+	top: 4px;
+	height: 9px;
+	border-bottom: var(--anchor-line) solid currentColor;
 	pointer-events: none;
 }
 
-.anchor-row.chosen .anchor {
-	border-width: 2.5px;
+.anchor::before,
+.anchor::after {
+	content: "";
+	position: absolute;
+	bottom: calc(-1 * var(--anchor-line));
+	height: calc(100% + var(--anchor-line));
+	border-left: var(--anchor-line) solid currentColor;
+	transform-origin: bottom;
+}
+
+.anchor::before {
+	left: 0;
+	transform: skewX(35deg);
+}
+
+.anchor::after {
+	right: 0;
+	transform: skewX(-35deg);
+}
+
+.anchor-check {
+	margin: 0;
 }
 
 .anchor-name {
@@ -720,7 +742,7 @@ body {
 }
 
 .anchor-name:disabled {
-	visibility: hidden;
+	opacity: var(--tk-dim);
 }
 
 .preview-lines {

@@ -875,13 +875,14 @@ function ExtractLineView({
 		<div class="extract-line">
 			<div class="surface code-text extract-block">
 				<ExtractText line={line} chosen={chosen} hovered={hovered} />
-				{/* Smallest part first, so that the bracket of a part inside
-				    another is inside its bracket. */}
+				{/* Smallest part first, so that a part inside another is
+				    underlined closer to the text. */}
 				{line.groups
 					.map((g, gi) => ({ g, gi }))
 					.reverse()
-					.map(({ g, gi }, row) => {
+					.map(({ g, gi }) => {
 						const on = chosen.includes(g.key);
+						const toggle = () => dispatch({ type: "TOGGLE_EXTRACT", line: index, key: g.key });
 						return (
 							<div key={g.key} class={on ? "anchor-row chosen" : "anchor-row"}>
 								<button
@@ -890,7 +891,7 @@ function ExtractLineView({
 									style={{ width: cols }}
 									aria-pressed={on}
 									title={`${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
-									onClick={() => dispatch({ type: "TOGGLE_EXTRACT", line: index, key: g.key })}
+									onClick={toggle}
 									onMouseEnter={() => setHovered(g.key)}
 									onMouseLeave={() => setHovered(null)}
 									onFocus={() => setHovered(g.key)}
@@ -900,19 +901,23 @@ function ExtractLineView({
 										<span
 											key={a}
 											class="anchor"
-											// The ends reach up to the text, past the rows above.
-											// Each row down is 2px wider on each side, so that
-											// the ends of nested brackets stand apart.
+											// Inset by a few pixels, so that the slanted ends of
+											// neighbouring occurrences do not touch.
 											style={{
-												left: `calc(${a}ch - ${2 * row - 1}px)`,
-												width: `calc(${b - a}ch + ${4 * row - 2}px)`,
-												top: `calc(-${row} * var(--anchor-row))`,
-												height: `calc(${row} * var(--anchor-row) + var(--anchor-depth))`,
-												borderColor: partColor(gi),
+												left: `calc(${a}ch + 3px)`,
+												width: `calc(${b - a}ch - 6px)`,
+												color: partColor(gi),
 											}}
 										/>
 									))}
 								</button>
+								<input
+									type="checkbox"
+									class="anchor-check"
+									aria-label={`Extract ${g.key}`}
+									checked={on}
+									onChange={toggle}
+								/>
 								<input
 									class="anchor-name"
 									type="text"
@@ -954,13 +959,13 @@ function extractModes(ex: ExtractState): { line: number; modes: ExtractMode[] }[
 
 const MODE_TITLES: Record<ExtractMode, { title: string; hint: string; button: string }> = {
 	plain: {
-		title: "As names",
-		hint: "Each part becomes a name. Copies of a part with holes share them.",
+		title: "Shared holes",
+		hint: "Extract the parts as they are: all copies of a part with holes share them.",
 		button: "Extract",
 	},
 	params: {
-		title: "With parameters",
-		hint: "A part with holes gets a parameter per hole, so the type keeps its meaning.",
+		title: "Separate holes",
+		hint: "Extract each hole as a parameter: every copy keeps its own holes, and the type its meaning.",
 		button: "Extract",
 	},
 };
@@ -986,7 +991,7 @@ function ExtractTool({ state, dispatch }: { state: AppState; dispatch: (a: Actio
 	};
 	return (
 		<>
-			<p class="note tool-subtitle">Name repeated parts of the signature with where. Click a row to choose a part.</p>
+			<p class="note tool-subtitle">Extract repeated parts of the signature into where definitions.</p>
 			{ex.error && <p class="error-note">{ex.error}</p>}
 			{ex.lines.map((l, i) => {
 				if (l.groups.length === 0) return null;
