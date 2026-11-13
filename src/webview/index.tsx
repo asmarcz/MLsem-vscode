@@ -599,6 +599,9 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 			<p class="note tool-subtitle">
 				Combine the selected overloads into a single declared type, or make their domains disjoint.
 			</p>
+			{state.binding?.checked === false && (
+				<p class="note stale-note">The definition does not typecheck: these are the overloads of its val lines.</p>
+			)}
 			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
 			<div class="layout">
 				<div>

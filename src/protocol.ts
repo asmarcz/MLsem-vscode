@@ -27,6 +27,9 @@ export type Precision = "equivalent" | "stronger" | "weaker";
 export interface Binding {
 	name: string;
 	declared: boolean;
+	// False when the definition does not typecheck: its overloads are then
+	// those of its val lines.
+	checked?: boolean;
 }
 
 export interface Overload {

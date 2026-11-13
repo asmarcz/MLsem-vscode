@@ -22,6 +22,7 @@ interface OverloadsResult {
 	found: boolean;
 	name: string;
 	declared: boolean;
+	checked?: boolean;
 	overloads: string[];
 	overloadVars: string[][];
 	concreteTypes: string[];
@@ -194,7 +195,7 @@ function postOverloads(result: OverloadsResult | { failed: string }): void {
 	panel?.webview.postMessage({
 		type: "overloads",
 		found: result.found,
-		binding: { name: result.name, declared: result.declared },
+		binding: { name: result.name, declared: result.declared, checked: result.checked },
 		// The server sends signatures and their free type variables as two
 		// parallel arrays; zip them here so the webview never has to keep an
 		// index alignment in sync with a list it otherwise addresses by text.
