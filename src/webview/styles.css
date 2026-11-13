@@ -816,6 +816,7 @@ body {
 	position: static;
 }
 
+/* Positioned in ch of the line's font: a button does not inherit it. */
 .widen-anchor {
 	position: absolute;
 	top: 0;
@@ -824,6 +825,7 @@ body {
 	padding: 0;
 	border: none;
 	background: none;
+	font: inherit;
 	cursor: pointer;
 	opacity: 0.7;
 }
