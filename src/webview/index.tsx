@@ -875,48 +875,62 @@ function ExtractLineView({
 		<div class="extract-line">
 			<div class="surface code-text extract-block">
 				<ExtractText line={line} chosen={chosen} hovered={hovered} />
-				{line.groups.map((g, gi) => {
-					const on = chosen.includes(g.key);
-					return (
-						<div key={g.key} class={on ? "anchor-row chosen" : "anchor-row"}>
-							<button
-								type="button"
-								class="anchor-track"
-								style={{ width: cols }}
-								aria-pressed={on}
-								title={`${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
-								onClick={() => dispatch({ type: "TOGGLE_EXTRACT", line: index, key: g.key })}
-								onMouseEnter={() => setHovered(g.key)}
-								onMouseLeave={() => setHovered(null)}
-								onFocus={() => setHovered(g.key)}
-								onBlur={() => setHovered(null)}
-							>
-								{g.occurrences.map(([a, b]) => (
-									<span
-										key={a}
-										class="anchor"
-										style={{ left: `${a}ch`, width: `${b - a}ch`, background: partColor(gi) }}
-									/>
-								))}
-							</button>
-							<input
-								class="anchor-name"
-								type="text"
-								aria-label={`Name for ${g.key}`}
-								disabled={!on}
-								value={ex.names[extractKey(index, g.key)] ?? g.name}
-								onInput={(e) =>
-									dispatch({
-										type: "SET_EXTRACT_NAME",
-										line: index,
-										key: g.key,
-										name: (e.target as HTMLInputElement).value,
-									})
-								}
-							/>
-						</div>
-					);
-				})}
+				{/* Smallest part first, so that the bracket of a part inside
+				    another is inside its bracket. */}
+				{line.groups
+					.map((g, gi) => ({ g, gi }))
+					.reverse()
+					.map(({ g, gi }, row) => {
+						const on = chosen.includes(g.key);
+						return (
+							<div key={g.key} class={on ? "anchor-row chosen" : "anchor-row"}>
+								<button
+									type="button"
+									class="anchor-track"
+									style={{ width: cols }}
+									aria-pressed={on}
+									title={`${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
+									onClick={() => dispatch({ type: "TOGGLE_EXTRACT", line: index, key: g.key })}
+									onMouseEnter={() => setHovered(g.key)}
+									onMouseLeave={() => setHovered(null)}
+									onFocus={() => setHovered(g.key)}
+									onBlur={() => setHovered(null)}
+								>
+									{g.occurrences.map(([a, b]) => (
+										<span
+											key={a}
+											class="anchor"
+											// The ends reach up to the text, past the rows above.
+											// Each row down is 2px wider on each side, so that
+											// the ends of nested brackets stand apart.
+											style={{
+												left: `calc(${a}ch - ${2 * row - 1}px)`,
+												width: `calc(${b - a}ch + ${4 * row - 2}px)`,
+												top: `calc(-${row} * var(--anchor-row))`,
+												height: `calc(${row} * var(--anchor-row) + var(--anchor-depth))`,
+												borderColor: partColor(gi),
+											}}
+										/>
+									))}
+								</button>
+								<input
+									class="anchor-name"
+									type="text"
+									aria-label={`Name for ${g.key}`}
+									disabled={!on}
+									value={ex.names[extractKey(index, g.key)] ?? g.name}
+									onInput={(e) =>
+										dispatch({
+											type: "SET_EXTRACT_NAME",
+											line: index,
+											key: g.key,
+											name: (e.target as HTMLInputElement).value,
+										})
+									}
+								/>
+							</div>
+						);
+					})}
 			</div>
 		</div>
 	);

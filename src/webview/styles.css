@@ -686,16 +686,25 @@ body {
 	outline: 1px solid var(--vscode-focusBorder);
 }
 
+/* An anchor brackets its occurrence from below: a line in its row whose
+   ends turn up to the text, so a part inside another is a bracket inside
+   its bracket. The markup sets [top] and [height] from the row's index. A
+   chosen part's lines are thicker. */
+.extract-block {
+	--anchor-row: 20px;
+	--anchor-depth: 12px;
+}
+
 .anchor {
 	position: absolute;
-	top: 8px;
-	height: 4px;
-	border-radius: 2px;
+	border: 1.5px solid;
+	border-top: none;
+	border-radius: 0 0 3px 3px;
+	pointer-events: none;
 }
 
 .anchor-row.chosen .anchor {
-	top: 7px;
-	height: 6px;
+	border-width: 2.5px;
 }
 
 .anchor-name {
