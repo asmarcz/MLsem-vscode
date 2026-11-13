@@ -23,6 +23,10 @@ interface OverloadsResult {
 	overloads: string[];
 	overloadVars: string[][];
 	concreteTypes: string[];
+	callInstances?: {
+		assignments: { var: string; type: string }[];
+		calls: { range: { start: { line: number } }; text: string }[];
+	}[][];
 }
 
 interface MergePreviewResult {
@@ -181,7 +185,14 @@ function postOverloads(result: OverloadsResult | { failed: string }): void {
 		// The server sends signatures and their free type variables as two
 		// parallel arrays; zip them here so the webview never has to keep an
 		// index alignment in sync with a list it otherwise addresses by text.
-		overloads: result.overloads.map((text, i) => ({ text, vars: result.overloadVars[i] ?? [] })),
+		overloads: result.overloads.map((text, i) => ({
+			text,
+			vars: result.overloadVars[i] ?? [],
+			instances: (result.callInstances?.[i] ?? []).map(({ assignments, calls }) => ({
+				assignments,
+				calls: calls.map(({ range, text }) => ({ line: range.start.line, text })),
+			})),
+		})),
 		concreteTypes: result.concreteTypes,
 	});
 }

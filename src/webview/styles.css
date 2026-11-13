@@ -547,6 +547,53 @@ body {
 	line-height: 1;
 }
 
+/* The instances calls use, under the variable fields: chips that fill them. */
+.call-instances {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.call-instances-label {
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
+}
+
+.call-instance {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 1px 8px;
+	border: 1px solid var(--tk-border);
+	border-radius: 999px;
+	background: transparent;
+	color: inherit;
+	font-family: var(--tk-code-font);
+	font-size: var(--tk-code-size);
+	cursor: pointer;
+}
+
+.call-instance:hover {
+	border-color: var(--tk-border-strong);
+}
+
+.call-instance.active {
+	border-color: var(--vscode-focusBorder);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 15%, transparent);
+}
+
+.call-instance:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.call-count {
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
+}
+
 .var-clear:hover {
 	opacity: 1;
 	background: var(--tk-border-soft);

@@ -2,6 +2,7 @@ import { type ComponentChildren, render } from "preact";
 import { useEffect, useReducer, useRef, useState } from "preact/hooks";
 import {
 	type Binding,
+	type CallInstance,
 	type ExtensionToWebview,
 	type ExtractChoice,
 	type ExtractLine,
@@ -118,6 +119,7 @@ type Action =
 	| { type: "EXTRACT_APPLYING" }
 	| { type: "APPLYING"; mode: MergeMode }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
+	| { type: "SET_ASSIGNMENTS"; overload: string; values: Record<string, string> }
 	| { type: "INST_APPLYING" }
 	| { type: "INST_CLEAR_PREVIEW" };
 
@@ -324,6 +326,13 @@ function reducer(state: AppState, action: Action): AppState {
 			const assignments = { ...state.assignments };
 			if (Object.keys(forOverload).length === 0) delete assignments[action.overload];
 			else assignments[action.overload] = forOverload;
+			return { ...state, assignments, instantiate: { ...state.instantiate, error: null } };
+		}
+		// Every variable of the overload at once: those not in [values] are
+		// cleared.
+		case "SET_ASSIGNMENTS": {
+			const assignments = { ...state.assignments, [action.overload]: action.values };
+			if (Object.keys(action.values).length === 0) delete assignments[action.overload];
 			return { ...state, assignments, instantiate: { ...state.instantiate, error: null } };
 		}
 		case "INST_APPLYING":
@@ -569,6 +578,48 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	);
 }
 
+// The instances of an overload that its calls use. Clicking one fills in the
+// overload's variables with it, and clicking it again clears them; the one
+// the fields hold is marked. The tooltip lists its calls.
+function CallInstances({
+	overload,
+	instances,
+	assigned,
+	dispatch,
+}: {
+	overload: string;
+	instances: CallInstance[];
+	assigned: Record<string, string>;
+	dispatch: (a: Action) => void;
+}) {
+	if (instances.length === 0) return null;
+	return (
+		<div class="call-instances">
+			<span class="call-instances-label">From calls</span>
+			{instances.map((inst) => {
+				const values = Object.fromEntries(inst.assignments.map((a) => [a.var, a.type]));
+				const key = inst.assignments.map((a) => `${a.var}=${a.type}`).join(",");
+				const active =
+					Object.keys(assigned).length === inst.assignments.length &&
+					inst.assignments.every((a) => assigned[a.var] === a.type);
+				return (
+					<button
+						key={key}
+						type="button"
+						class={`call-instance${active ? " active" : ""}`}
+						aria-pressed={active}
+						title={inst.calls.map((c) => `line ${c.line + 1}: ${c.text}`).join("\n")}
+						onClick={() => dispatch({ type: "SET_ASSIGNMENTS", overload, values: active ? {} : values })}
+					>
+						<Code text={inst.assignments.map((a) => `${a.var} = ${a.type}`).join(", ")} />
+						{inst.calls.length > 1 && <span class="call-count">×{inst.calls.length}</span>}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
 function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const inst = state.instantiate;
 	const claimApply = useApplyGuard(inst.applying);
@@ -622,7 +673,8 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	return (
 		<>
 			<p class="note tool-subtitle">
-				Pin a type variable to a concrete type, per overload. Variables are independent across overloads.
+				Pin a type variable to a concrete type, per overload. Variables are independent across overloads. Under an
+				overload, the instances its calls in this file use.
 			</p>
 			{inst.error && <p class="error-note">{inst.error}</p>}
 			{inst.stale && <p class="note stale-note">Types changed — assignments updated.</p>}
@@ -633,7 +685,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 			</datalist>
 			<div class="inst-list">
 				{state.overloads.length === 0 && <p class="note note-absent empty-note">No overloads available.</p>}
-				{state.overloads.map(({ text, vars }) => {
+				{state.overloads.map(({ text, vars, instances }) => {
 					const assigned = state.assignments[text] ?? {};
 					const rowAssigned = Object.keys(assigned).length > 0;
 					return (
@@ -682,6 +734,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 										))}
 									</div>
 								)}
+								<CallInstances overload={text} instances={instances} assigned={assigned} dispatch={dispatch} />
 							</div>
 							{vars.length > 0 && (
 								<ActionRow

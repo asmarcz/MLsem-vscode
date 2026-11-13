@@ -36,6 +36,16 @@ export interface Overload {
 	text: string;
 	// Free type-variable names of this overload.
 	vars: string[];
+	// The instances of this overload that calls in the document use, in
+	// order of first call.
+	instances: CallInstance[];
+}
+
+// An instance of an overload: a type per variable, and the calls using it
+// (0-based line and the call's text).
+export interface CallInstance {
+	assignments: { var: string; type: string }[];
+	calls: { line: number; text: string }[];
 }
 
 // One overload's variable -> concrete-type assignments.
