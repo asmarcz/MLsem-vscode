@@ -816,7 +816,7 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					<div class="surface code-text preview-block">
 						<HoleText line={l} selected={state.selectedHoles} dispatch={dispatch} />
 					</div>
-					{l.rows.map((r, row) => {
+					{l.rows.map((_, row) => {
 						const picked = l.holes
 							.filter((h) => state.selectedHoles.includes(holeKey(l.line, row, h.start)))
 							.map((h) => ({ line: l.line, row, start: h.start }));
@@ -841,11 +841,6 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 										Fill
 									</button>
 								</div>
-								{r.overload && (
-									<p class="note hole-overload">
-										for <Code text={r.overload} />
-									</p>
-								)}
 							</div>
 						);
 					})}

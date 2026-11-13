@@ -594,21 +594,11 @@ body {
 	gap: 8px;
 }
 
-/* A row of values: its filled line, and for which overload of the line's
-   result, when there are several. */
+/* A row of values: its filled line. */
 .hole-row {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-}
-
-.hole-overload {
-	margin: 0 0 0 2px;
-	font-size: var(--tk-small-size);
-}
-
-.hole-overload span {
-	font-family: var(--tk-code-font);
 }
 
 /* A hole the row's overload gives no value: left as written. */
