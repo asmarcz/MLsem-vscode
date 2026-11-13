@@ -1057,8 +1057,9 @@ function Section({
 					disabled={unavailable !== undefined}
 					onClick={() => dispatch({ type: "TOGGLE_SECTION", id })}
 				>
+					{/* No chevron when the tool cannot open: only the space it takes. */}
 					<svg class="pane-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-						<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" />
+						{!unavailable && <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" />}
 					</svg>
 					{title}
 					{unavailable && <span class="pane-unavailable">{unavailable}</span>}
