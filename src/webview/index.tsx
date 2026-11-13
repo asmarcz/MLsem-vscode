@@ -890,7 +890,7 @@ function ExtractLineView({
 									class="anchor-track"
 									style={{ width: cols }}
 									aria-pressed={on}
-									title={`${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
+									title={`${on ? "Click to leave out" : "Click to extract"}: ${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
 									onClick={toggle}
 									onMouseEnter={() => setHovered(g.key)}
 									onMouseLeave={() => setHovered(null)}
@@ -926,13 +926,6 @@ function ExtractLineView({
 											name: (e.target as HTMLInputElement).value,
 										})
 									}
-								/>
-								<input
-									type="checkbox"
-									class="anchor-check"
-									aria-label={`Extract ${g.key}`}
-									checked={on}
-									onChange={toggle}
 								/>
 							</div>
 						);
