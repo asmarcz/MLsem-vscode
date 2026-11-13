@@ -694,7 +694,7 @@ function HoleText({
 }
 
 // The draft val lines of the target: each as written and with its holes
-// filled in. Fill writes a line's selected holes, or all of them when none
+// filled in. Fill writes a line's selected holes, and is disabled until one
 // is selected; Fill all writes every hole.
 function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const fill = (holes?: { line: number; start: number }[]) => vscodeApi.postMessage({ type: "fillHoles", holes });
@@ -707,7 +707,6 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 				const picked = l.holes
 					.filter((h) => state.selectedHoles.includes(holeKey(l.line, h.start)))
 					.map((h) => ({ line: l.line, start: h.start }));
-				const all = l.holes.map((h) => ({ line: l.line, start: h.start }));
 				return (
 					<div key={l.line} class="hole-line">
 						<div class="surface code-text preview-block">
@@ -721,13 +720,12 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 								class="btn btn-secondary"
 								type="button"
 								title={
-									picked.length > 0
-										? "Write the selected holes of this line"
-										: "Write this line with its holes filled in"
+									picked.length > 0 ? "Write the selected holes of this line" : "Select holes of this line to fill them"
 								}
-								onClick={() => fill(picked.length > 0 ? picked : all)}
+								disabled={picked.length === 0}
+								onClick={() => fill(picked)}
 							>
-								{picked.length > 0 ? "Fill selected" : "Fill"}
+								Fill
 							</button>
 						</div>
 					</div>
