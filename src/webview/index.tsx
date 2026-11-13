@@ -23,7 +23,8 @@ import {
 	type TokenStyle,
 	triesText,
 	type WebviewToExtension,
-	type WidenPart,
+	type WidenablePart,
+	type WidenLine,
 } from "../protocol";
 import { Code, TokenColors } from "./highlight";
 import css from "./styles.css";
@@ -89,7 +90,7 @@ interface AppState {
 	extract: ExtractState;
 	// The part of a val type at the editor's selection and its wider types,
 	// or why there is none.
-	widen: { part: WidenPart | null; reason: string | null; applying: boolean; error: string | null };
+	widen: { lines: WidenLine[]; reason: string | null; applying: boolean; error: string | null };
 	// The editor theme's style for each MLsem scope, for highlighting.
 	tokenColors: Record<string, TokenStyle>;
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
@@ -153,7 +154,7 @@ const initialState: AppState = {
 	holes: [],
 	selectedHoles: [],
 	extract: initialExtract,
-	widen: { part: null, reason: null, applying: false, error: null },
+	widen: { lines: [], reason: null, applying: false, error: null },
 	tokenColors: {},
 	collapsed: { holes: false, extract: false, widen: false, merge: false, instantiate: false, llm: false },
 };
@@ -249,7 +250,7 @@ function reducer(state: AppState, action: Action): AppState {
 			// edit done.
 			return {
 				...state,
-				widen: { ...state.widen, part: action.part, reason: action.reason ?? null, error: null },
+				widen: { ...state.widen, lines: action.lines, reason: action.reason ?? null, error: null },
 			};
 		case "WIDEN_APPLYING":
 			return { ...state, widen: { ...state.widen, applying: true, error: null } };
@@ -398,8 +399,6 @@ function buildInstantiations(assignments: Assignments): Instantiation[] {
 		.map(([overload, vars]) => ({ overload, assignments: toAssignmentPairs(vars) }))
 		.filter((i) => i.assignments.length > 0);
 }
-
-const DATALIST_ID = "mlsem-concrete-types";
 
 // Synchronous re-entrancy guard for the apply buttons. The [applying] flag only
 // flips once the reducer has run, so two clicks in the same tick would both get
@@ -762,11 +761,6 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 			</p>
 			{inst.error && <p class="error-note">{inst.error}</p>}
 			{inst.stale && <p class="note stale-note">Types changed — assignments updated.</p>}
-			<datalist id={DATALIST_ID}>
-				{state.concreteTypes.map((t) => (
-					<option key={t} value={t} />
-				))}
-			</datalist>
 			<div class="inst-list">
 				{state.overloads.length === 0 && <p class="note note-absent empty-note">No overloads available.</p>}
 				{state.overloads.map(({ text, vars, instances }) => {
@@ -783,22 +777,19 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 								) : (
 									<div class="var-row">
 										{vars.map((v) => (
-											<label key={v} class="var-field">
+											<span key={v} class="var-field">
 												<span class="var-name">{v}</span>
 												<span class="var-input-wrap">
-													<input
-														class="var-combobox"
-														list={DATALIST_ID}
-														placeholder="type…"
+													<TypeSelect
+														options={state.concreteTypes}
 														value={assigned[v] ?? ""}
-														onInput={(e) =>
-															dispatch({
-																type: "SET_ASSIGNMENT",
-																overload: text,
-																variable: v,
-																value: (e.target as HTMLInputElement).value.trim(),
-															})
+														onChange={(value) =>
+															dispatch({ type: "SET_ASSIGNMENT", overload: text, variable: v, value })
 														}
+														label={`Type for ${v}`}
+														placeholder="type…"
+														changed={assigned[v] !== undefined}
+														free
 													/>
 													{assigned[v] ? (
 														<button
@@ -814,7 +805,7 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 														</button>
 													) : null}
 												</span>
-											</label>
+											</span>
 										))}
 									</div>
 								)}
@@ -935,55 +926,86 @@ function HoleText({
 	return <>{parts}</>;
 }
 
-// An inline dropdown: the chosen option, a button that opens the list of
-// [options] below it. The keyboard works as in a listbox: arrows move,
-// Enter or Space picks, Escape closes; a click outside closes too. Options
-// are types, shown highlighted.
+let typeSelectCount = 0;
+
+// A dropdown of types: a button showing [value] (or [children], when given)
+// that opens the list of [options] under it. The keyboard works as in a
+// listbox: arrows move, Enter or Space picks, Escape closes; a click outside,
+// a scroll or a resize closes too. The list is placed on the page, not in
+// the button's box, so a scrolling container does not cut it. With [free],
+// the list starts with a field where any type can be typed.
 function TypeSelect({
 	options,
 	value,
 	onChange,
 	label,
+	placeholder,
+	changed,
+	free,
+	buttonClass,
+	buttonStyle,
+	children,
 }: {
 	options: string[];
-	value: number;
-	onChange: (i: number) => void;
+	value: string;
+	onChange: (v: string) => void;
 	label: string;
+	placeholder?: string;
+	changed?: boolean;
+	free?: boolean;
+	buttonClass?: string;
+	buttonStyle?: Record<string, string>;
+	children?: ComponentChildren;
 }) {
 	const [open, setOpen] = useState(false);
-	const [active, setActive] = useState(value);
+	const [active, setActive] = useState(0);
+	const [typed, setTyped] = useState("");
+	const [pos, setPos] = useState({ top: 0, left: 0 });
+	const id = useRef(`type-select-${++typeSelectCount}`).current;
 	const root = useRef<HTMLSpanElement>(null);
 	const button = useRef<HTMLButtonElement>(null);
 	const list = useRef<HTMLDivElement>(null);
+	const field = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
 		if (!open) return;
-		list.current?.focus();
+		(free ? field.current : list.current)?.focus();
 		const outside = (e: MouseEvent) => {
 			if (!root.current?.contains(e.target as Node)) setOpen(false);
 		};
+		const close = (e: Event) => {
+			if (!list.current?.contains(e.target as Node)) setOpen(false);
+		};
 		document.addEventListener("mousedown", outside);
-		return () => document.removeEventListener("mousedown", outside);
-	}, [open]);
+		window.addEventListener("scroll", close, true);
+		window.addEventListener("resize", close);
+		return () => {
+			document.removeEventListener("mousedown", outside);
+			window.removeEventListener("scroll", close, true);
+			window.removeEventListener("resize", close);
+		};
+	}, [open, free]);
 
 	function show() {
-		setActive(value);
+		const r = button.current?.getBoundingClientRect();
+		if (r) setPos({ top: r.bottom + 2, left: r.left });
+		setActive(Math.max(0, options.indexOf(value)));
+		setTyped("");
 		setOpen(true);
 	}
 
-	function pick(i: number) {
-		onChange(i);
+	function pick(v: string) {
+		onChange(v);
 		setOpen(false);
 		button.current?.focus();
 	}
 
-	function onListKey(e: KeyboardEvent) {
+	function onKey(e: KeyboardEvent) {
 		const last = options.length - 1;
 		if (e.key === "ArrowDown") setActive((a) => Math.min(a + 1, last));
 		else if (e.key === "ArrowUp") setActive((a) => Math.max(a - 1, 0));
-		else if (e.key === "Home") setActive(0);
-		else if (e.key === "End") setActive(last);
-		else if (e.key === "Enter" || e.key === " ") pick(active);
+		else if (e.key === "Enter" && typed.trim() !== "") pick(typed.trim());
+		else if ((e.key === "Enter" || (e.key === " " && !free)) && options[active] !== undefined) pick(options[active]);
 		else if (e.key === "Escape" || e.key === "Tab") {
 			setOpen(false);
 			if (e.key === "Escape") button.current?.focus();
@@ -997,10 +1019,12 @@ function TypeSelect({
 			<button
 				ref={button}
 				type="button"
-				class={`type-select-button${value === 0 ? "" : " changed"}`}
+				class={buttonClass ?? `type-select-button${changed ? " changed" : ""}`}
+				style={buttonStyle}
 				aria-haspopup="listbox"
 				aria-expanded={open}
 				aria-label={label}
+				title={label}
 				onClick={() => (open ? setOpen(false) : show())}
 				onKeyDown={(e) => {
 					if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1009,36 +1033,52 @@ function TypeSelect({
 					}
 				}}
 			>
-				<Code text={options[value] ?? ""} />
-				<svg class="type-select-chevron" viewBox="0 0 16 16" aria-hidden="true">
-					<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" />
-				</svg>
+				{children ?? (
+					<>
+						{value === "" ? <span class="type-select-placeholder">{placeholder}</span> : <Code text={value} />}
+						<svg class="type-select-chevron" viewBox="0 0 16 16" aria-hidden="true">
+							<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" />
+						</svg>
+					</>
+				)}
 			</button>
 			{open && (
 				<div
 					ref={list}
 					class="type-select-menu"
+					style={{ top: `${pos.top}px`, left: `${pos.left}px` }}
 					role="listbox"
 					tabIndex={-1}
 					aria-label={label}
-					aria-activedescendant={`type-option-${active}`}
-					onKeyDown={onListKey}
+					aria-activedescendant={`${id}-${active}`}
+					onKeyDown={onKey}
 				>
+					{free && (
+						<input
+							ref={field}
+							class="type-select-field"
+							type="text"
+							placeholder="any type…"
+							aria-label={`${label}: any type`}
+							value={typed}
+							onInput={(e) => setTyped((e.target as HTMLInputElement).value)}
+						/>
+					)}
 					{options.map((o, i) => (
 						// The list has the focus and points at the active option,
 						// so options are not tab stops.
 						<div
 							key={o}
-							id={`type-option-${i}`}
+							id={`${id}-${i}`}
 							role="option"
 							tabIndex={-1}
-							aria-selected={i === value}
-							class={`type-select-option${i === active ? " active" : ""}${i === value ? " selected" : ""}`}
+							aria-selected={o === value}
+							class={`type-select-option${i === active ? " active" : ""}${o === value ? " selected" : ""}`}
 							onMouseEnter={() => setActive(i)}
 							onMouseDown={(e) => {
 								// Keep the focus in the list until the pick moves it.
 								e.preventDefault();
-								pick(i);
+								pick(o);
 							}}
 						>
 							<Code text={o} />
@@ -1050,39 +1090,157 @@ function TypeSelect({
 	);
 }
 
-// The val line of the part at the editor's selection or cursor, the part
-// being a dropdown of itself and its wider types, tightest first. Apply
-// writes the one chosen.
+function widenKey(line: number, p: WidenablePart) {
+	return `${line}:${p.start}:${p.end}`;
+}
+
+// The height of each part of a line among its parts: 0 when none is inside
+// it, else one more than the highest inside. Parts of one height do not
+// nest, so they share a track.
+function partHeights(parts: WidenablePart[]): number[] {
+	const inside = (a: WidenablePart, b: WidenablePart) =>
+		a !== b && b.start <= a.start && a.end <= b.end && (a.start !== b.start || a.end !== b.end);
+	const heights = new Map<WidenablePart, number>();
+	const height = (p: WidenablePart): number => {
+		const known = heights.get(p);
+		if (known !== undefined) return known;
+		const h = parts.reduce((m, q) => (inside(q, p) ? Math.max(m, height(q) + 1) : m), 0);
+		heights.set(p, h);
+		return h;
+	};
+	return parts.map(height);
+}
+
+// A val line: its text, the chosen parts tinted, and under it the anchors
+// of its widenable parts, innermost nearest the text. An anchor opens its
+// part's wider types. Under the block, the line with the choices written.
+function WidenLineView({
+	line,
+	chosen,
+	choose,
+}: {
+	line: WidenLine;
+	chosen: Record<string, string>;
+	choose: (p: WidenablePart, v: string) => void;
+}) {
+	const heights = partHeights(line.parts);
+	const tracks = Math.max(-1, ...heights) + 1;
+	const cols = `${line.text.length}ch`;
+	const choice = (p: WidenablePart) => chosen[widenKey(line.line, p)];
+	// The colour of a chosen part, by its order on the line.
+	const color = (i: number) => partColor(i);
+	// The text, a chosen part tinted.
+	const pieces: ComponentChildren[] = [];
+	const picked = line.parts
+		.map((p, i) => ({ p, i }))
+		.filter(({ p }) => choice(p) !== undefined)
+		.sort((a, b) => a.p.start - b.p.start);
+	let at = 0;
+	for (const { p, i } of picked) {
+		pieces.push(<Code key={`t${at}`} text={line.text.slice(at, p.start)} />);
+		pieces.push(
+			<span key={`p${p.start}`} style={{ background: `color-mix(in srgb, ${color(i)} 30%, transparent)` }}>
+				<Code text={line.text.slice(p.start, p.end)} />
+			</span>,
+		);
+		at = p.end;
+	}
+	pieces.push(<Code key={`t${at}`} text={line.text.slice(at)} />);
+	// The line with the choices written, from the last part back so that
+	// the columns of the others stay right.
+	const written = picked.reduceRight(
+		(text, { p }) => text.slice(0, p.start) + choice(p) + text.slice(p.end),
+		line.text,
+	);
+	return (
+		<div class="extract-line">
+			<div class="surface code-text extract-block">
+				<div class="extract-text">{pieces}</div>
+				{Array.from({ length: tracks }, (_, h) => (
+					// Keyed by height: tracks are the levels of nesting.
+					<div key={h} class="widen-track" style={{ width: cols }}>
+						{line.parts.map((p, i) => {
+							if (heights[i] !== h) return null;
+							const v = choice(p);
+							return (
+								<TypeSelect
+									key={widenKey(line.line, p)}
+									options={[p.text, ...p.wider]}
+									value={v ?? p.text}
+									onChange={(nv) => choose(p, nv)}
+									label={`Wider type for ${p.text}`}
+									buttonClass={`widen-anchor${v !== undefined ? " chosen" : ""}`}
+									buttonStyle={{ left: `${p.start}ch`, width: `${p.end - p.start}ch` }}
+								>
+									<span
+										class="anchor"
+										// Inset by a few pixels, so that the slanted ends of
+										// neighbouring parts do not touch.
+										style={{ left: "3px", right: "3px", color: v !== undefined ? color(i) : undefined }}
+									/>
+								</TypeSelect>
+							);
+						})}
+					</div>
+				))}
+			</div>
+			{picked.length > 0 && (
+				<div class="surface code-text preview-block widen-written">
+					<Code text={written} />
+				</div>
+			)}
+		</div>
+	);
+}
+
+// The val lines of the target with an anchor under each part that can be
+// widened. Picking a wider type for a part leaves out the choices of the
+// parts nested in it or around it. Apply writes every choice.
 function WidenTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const { part, applying, error } = state.widen;
+	const { lines, applying, error } = state.widen;
 	const claimApply = useApplyGuard(applying);
-	const [choice, setChoice] = useState(0);
-	// A new part starts from itself.
-	const partKey = part ? `${part.line}:${part.start}:${part.part}` : "";
-	useEffect(() => setChoice(0), [partKey]);
-	if (!part) return null;
-	const options = [part.part, ...part.candidates];
-	const chosen = choice === 0 ? null : options[choice];
+	const [chosen, setChosen] = useState<Record<string, string>>({});
+	// Choices are for the lines as they were: new lines start without any.
+	const linesKey = lines.map((l) => `${l.line}:${l.text}`).join("\n");
+	useEffect(() => setChosen({}), [linesKey]);
+	const choose = (line: WidenLine) => (p: WidenablePart, v: string) =>
+		setChosen((c) => {
+			const next: Record<string, string> = {};
+			for (const q of line.parts) {
+				const k = widenKey(line.line, q);
+				const overlaps = q.start < p.end && p.start < q.end;
+				if (!overlaps && c[k] !== undefined) next[k] = c[k];
+			}
+			for (const [k, cv] of Object.entries(c)) if (!k.startsWith(`${line.line}:`)) next[k] = cv;
+			if (v !== p.text) next[widenKey(line.line, p)] = v;
+			return next;
+		});
+	const edits = lines.flatMap((l) =>
+		l.parts.flatMap((p) => {
+			const v = chosen[widenKey(l.line, p)];
+			return v === undefined ? [] : [{ line: l.line, start: p.start, end: p.end, part: p.text, text: v }];
+		}),
+	);
 	const apply = () => {
-		if (!chosen || !claimApply()) return;
+		if (edits.length === 0 || !claimApply()) return;
 		dispatch({ type: "WIDEN_APPLYING" });
-		vscodeApi.postMessage({ type: "applyWiden", text: chosen });
+		vscodeApi.postMessage({ type: "applyWiden", edits });
 	};
 	return (
 		<>
-			<p class="note tool-subtitle">Pick a wider type for the part of a val type at the selection or cursor.</p>
+			<p class="note tool-subtitle">
+				Click under a part of a val type to pick a wider type for it, innermost parts nearest the text.
+			</p>
 			{error && <p class="error-note">{error}</p>}
-			<div class="hole-filled-row">
-				<div class="surface code-text preview-block">
-					<Code text={part.lineText.slice(0, part.start)} />
-					<TypeSelect options={options} value={choice} onChange={setChoice} label={`Wider type for ${part.part}`} />
-					<Code text={part.lineText.slice(part.end)} />
-				</div>
+			{lines.map((l) => (
+				<WidenLineView key={l.line} line={l} chosen={chosen} choose={choose(l)} />
+			))}
+			<div class="btn-row">
 				<button
 					class="btn btn-primary"
 					type="button"
-					title={chosen ? `Write ${chosen} in place of ${part.part}` : "Pick a wider type first"}
-					disabled={!chosen || applying}
+					title={edits.length > 0 ? "Write the picked types" : "Pick a wider type for a part first"}
+					disabled={edits.length === 0 || applying}
 					onClick={apply}
 				>
 					Apply
@@ -1634,13 +1792,13 @@ function App() {
 	const noTarget = state.target ? undefined : "no definition at the cursor";
 	// The server's reason is a sentence; the label is a phrase.
 	const widenReason = state.widen.reason?.replace(/\.$/, "");
-	const noWiden = state.widen.part
-		? state.widen.part.candidates.length > 0
+	const noWiden =
+		noTarget ??
+		(state.widen.lines.some((l) => l.parts.length > 0)
 			? undefined
-			: "nothing wider"
-		: widenReason
-			? widenReason.charAt(0).toLowerCase() + widenReason.slice(1)
-			: "no part of a val type selected";
+			: widenReason
+				? widenReason.charAt(0).toLowerCase() + widenReason.slice(1)
+				: "nothing to widen");
 	const noOverloads =
 		noTarget ??
 		(state.found ? undefined : state.overloadsFailure ? `failed: ${state.overloadsFailure}` : "does not typecheck");

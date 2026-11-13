@@ -49,16 +49,31 @@ export interface ResolvePreview {
 	unreachable: string[];
 }
 
-// A part of a val line's type, at [start, end) of line [line] whose text is
-// [lineText] (parentheses around it included), and the wider types for it,
-// tightest first, as written in its place.
-export interface WidenPart {
-	part: string;
+// A part of a val line's type at columns [start, end) (parentheses around it
+// included), its text, and its wider types, tightest first, as written in
+// its place.
+export interface WidenablePart {
+	start: number;
+	end: number;
+	text: string;
+	wider: string[];
+}
+
+// A val line of the target, by number, with its widenable parts.
+export interface WidenLine {
+	line: number;
+	text: string;
+	parts: WidenablePart[];
+}
+
+// A part to replace: its line and columns, its text when it was picked (to
+// notice a change since), and what to write.
+export interface WidenEdit {
 	line: number;
 	start: number;
 	end: number;
-	lineText: string;
-	candidates: string[];
+	part: string;
+	text: string;
 }
 
 // An instance of an overload: a type per variable, and the calls using it
@@ -253,9 +268,9 @@ export type ExtensionToWebview =
 			linksHoles?: boolean;
 	  }
 	| { type: "extracted"; error?: string }
-	// The part of a val line's type at the editor's selection or cursor, and
-	// the wider types for it; or why there is none.
-	| { type: "widen"; part: WidenPart | null; reason?: string }
+	// The target's val lines with their widenable parts; or why there are
+	// none.
+	| { type: "widen"; lines: WidenLine[]; reason?: string }
 	| { type: "widened"; error?: string }
 	// The selected overloads with their overlap resolved.
 	| { type: "resolvePreview"; ok: boolean; preview?: ResolvePreview; error?: string }
@@ -279,8 +294,8 @@ export type WebviewToExtension =
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
 	| { type: "applyExtract"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
-	// Replace the widen tool's part with [text].
-	| { type: "applyWiden"; text: string }
+	// Write the picked wider types.
+	| { type: "applyWiden"; edits: WidenEdit[] }
 	// Preview, or write, the selected overloads with their overlap resolved.
 	| { type: "requestResolve"; name: string; overloadTexts: string[] }
 	| { type: "applyResolve"; name: string; overloadTexts: string[] }

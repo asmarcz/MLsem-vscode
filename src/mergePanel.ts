@@ -11,7 +11,7 @@ import type {
 	HoleLine,
 	Precision,
 	WebviewToExtension,
-	WidenPart,
+	WidenLine,
 } from "./protocol";
 import { tokenColors } from "./themeColors";
 
@@ -121,9 +121,6 @@ type TypedPanel = Omit<vscode.WebviewPanel, "webview"> & { webview: TypedWebview
 let panel: TypedPanel | undefined;
 let currentUri: vscode.Uri | undefined;
 let currentPosition: vscode.Position | undefined;
-// The editor's selection when the panel last followed it, for the widen tool;
-// empty when only the cursor was placed.
-let currentSelection: vscode.Range | undefined;
 let client: LanguageClient | undefined;
 let followTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -343,52 +340,28 @@ async function extractApply(
 // The holes last posted to the panel, which "fillHoles" replaces.
 let currentHoles: HoleLine[] = [];
 
-// The part last posted to the widen tool, which "applyWiden" replaces.
-let currentWiden: WidenPart | null = null;
-
 interface WidenResult {
 	ok: boolean;
 	error?: string;
-	part?: string;
-	range?: { start: { line: number; character: number }; end: { line: number; character: number } };
-	lineText?: string;
-	candidates?: string[];
+	lines?: WidenLine[];
 }
 
-// The smallest part of a val line's type containing [selection], and the
-// wider types for it.
+// The val lines of the definition at [position] with their widenable parts.
 async function fetchWiden(
 	uri: vscode.Uri,
-	selection: vscode.Range,
-): Promise<{ part: WidenPart | null; reason?: string }> {
-	if (!client) return { part: null };
-	let result: WidenResult;
+	position: vscode.Position,
+): Promise<{ lines: WidenLine[]; reason?: string }> {
+	if (!client) return { lines: [] };
 	try {
-		result = await client.sendRequest<WidenResult>("mlsem/widen", {
+		const result = await client.sendRequest<WidenResult>("mlsem/widen", {
 			textDocument: { uri: uri.toString() },
-			position: { line: selection.start.line, character: selection.start.character },
-			range: {
-				start: { line: selection.start.line, character: selection.start.character },
-				end: { line: selection.end.line, character: selection.end.character },
-			},
+			position: { line: position.line, character: position.character },
 			text: textOf(uri),
 		});
+		return result.ok ? { lines: result.lines ?? [] } : { lines: [], reason: result.error };
 	} catch (e) {
-		return { part: null, reason: String(e) };
+		return { lines: [], reason: String(e) };
 	}
-	const { range } = result;
-	if (!result.ok || !range || result.part === undefined) return { part: null, reason: result.error };
-	if (range.start.line !== range.end.line) return { part: null, reason: "The part spans several lines." };
-	return {
-		part: {
-			part: result.part,
-			line: range.start.line,
-			start: range.start.character,
-			end: range.end.character,
-			lineText: result.lineText ?? "",
-			candidates: result.candidates ?? [],
-		},
-	};
 }
 
 // Re-fetch the panel's target and post it to every tool, whatever it is —
@@ -410,21 +383,18 @@ async function refreshCurrent(): Promise<void> {
 	// After the overloads: the holes come from the typecheck they waited for.
 	currentHoles = name ? await fetchHoles(uri, position) : [];
 	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
-	const widen = await fetchWiden(uri, currentSelection ?? new vscode.Range(position, position));
-	currentWiden = widen.part;
-	panel?.webview.postMessage({ type: "widen", part: widen.part, reason: widen.reason });
+	const widen = name ? await fetchWiden(uri, position) : { lines: [] };
+	panel?.webview.postMessage({ type: "widen", lines: widen.lines, reason: widen.reason });
 }
 
 // Follow the editor cursor: retarget the panel to the definition under
 // [position], typeable or not, but only when there is one, so clicking off a
 // definition keeps the current panel content instead of blanking it.
-async function followCursor(uri: vscode.Uri, selection: vscode.Selection): Promise<void> {
+async function followCursor(uri: vscode.Uri, position: vscode.Position): Promise<void> {
 	if (!panel) return;
-	const position = selection.active;
 	if ((await definitionAt(uri, position)) === undefined) return;
 	currentUri = uri;
 	currentPosition = position;
-	currentSelection = selection;
 	await refreshCurrent();
 }
 
@@ -443,7 +413,6 @@ export function openTypeToolkit(
 	if (uri && position) {
 		currentUri = uri;
 		currentPosition = position;
-		currentSelection = new vscode.Range(position, position);
 	}
 
 	if (panel) {
@@ -471,11 +440,11 @@ export function openTypeToolkit(
 	// drag-selection and rapid caret moves don't spam the server.
 	const selectionSubscription = vscode.window.onDidChangeTextEditorSelection((event) => {
 		if (event.textEditor.document.languageId !== "mlsem") return;
-		const selection = event.selections[0];
-		if (!selection) return;
+		const position = event.selections[0]?.active;
+		if (!position) return;
 		const uri = event.textEditor.document.uri;
 		if (followTimer) clearTimeout(followTimer);
-		followTimer = setTimeout(() => followCursor(uri, selection), 120);
+		followTimer = setTimeout(() => followCursor(uri, position), 120);
 	});
 
 	// Apply an edit result to the workspace. On [stale] the binding changed
@@ -604,19 +573,20 @@ export function openTypeToolkit(
 			panel?.webview.postMessage({ type: "extracted", error });
 		} else if (message.type === "applyWiden") {
 			const uri = currentUri;
-			const part = currentWiden;
-			if (!uri || !part) return;
-			const range = new vscode.Range(part.line, part.start, part.line, part.end);
-			// The document changed since: show the part as it is now instead.
+			if (!uri) return;
+			const ranges = message.edits.map((e) => new vscode.Range(e.line, e.start, e.line, e.end));
+			// The document changed since: show the parts as they are now instead.
 			const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
 			// After the refresh, whose "widen" clears the tool's error.
-			if (doc?.getText(range) !== part.part) {
+			if (message.edits.some((e, i) => doc?.getText(ranges[i]) !== e.part)) {
 				await refreshCurrent();
-				panel?.webview.postMessage({ type: "widened", error: "The type changed; showing it again." });
+				panel?.webview.postMessage({ type: "widened", error: "The types changed; showing them again." });
 				return;
 			}
 			const we = new vscode.WorkspaceEdit();
-			we.replace(uri, range, message.text);
+			message.edits.forEach((e, i) => {
+				we.replace(uri, ranges[i], e.text);
+			});
 			const ok = await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
 			panel?.webview.postMessage({ type: "widened", error: ok ? undefined : "Could not write the type." });
@@ -771,7 +741,5 @@ export function openTypeToolkit(
 		panel = undefined;
 		currentUri = undefined;
 		currentPosition = undefined;
-		currentSelection = undefined;
-		currentWiden = null;
 	});
 }

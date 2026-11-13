@@ -29,12 +29,8 @@ body {
 	--tk-small-size: 0.85em;
 	--tk-dim: 0.7;
 
-	/* A combobox's clear button sits in a gutter of [--tk-clear-inset] on each
-	   side of it. The input derives its trailing padding from these two rather
-	   than repeating the sum as a literal that has to be kept in step by hand. */
+	/* A variable's clear button. */
 	--tk-clear-size: 16px;
-	--tk-clear-inset: 4px;
-	--tk-clear-gutter: calc(var(--tk-clear-size) + 2 * var(--tk-clear-inset));
 }
 
 .dashboard {
@@ -500,35 +496,16 @@ body {
 	opacity: 0.9;
 }
 
+/* A variable's dropdown, then its clear button. */
 .var-input-wrap {
-	position: relative;
 	display: inline-flex;
 	align-items: center;
-}
-
-.var-combobox {
-	/* 14ch rather than 13: the trailing gutter is inside the border box, so the
-	   extra character's worth of width keeps the visible text area unchanged. */
-	width: 14ch;
-	padding: 2px var(--tk-clear-gutter) 2px 6px;
-	background: var(--vscode-input-background);
-	color: var(--vscode-input-foreground);
-	border: 1px solid var(--vscode-input-border, var(--tk-border));
-	border-radius: var(--tk-radius);
+	gap: 2px;
 	font-family: var(--tk-code-font);
 	font-size: var(--tk-code-size);
 }
 
-.var-combobox:focus {
-	outline: 1px solid var(--vscode-focusBorder);
-	outline-offset: -1px;
-}
-
 .var-clear {
-	position: absolute;
-	right: var(--tk-clear-inset);
-	top: 50%;
-	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -719,12 +696,17 @@ body {
 	opacity: 0.8;
 }
 
+.type-select-placeholder {
+	opacity: var(--tk-dim);
+	font-style: italic;
+}
+
+/* Placed on the page by the markup (top, left), so that a scrolling
+   container does not cut it. */
 .type-select-menu {
-	position: absolute;
-	top: calc(100% + 2px);
-	left: 0;
+	position: fixed;
 	z-index: 10;
-	min-width: 100%;
+	min-width: 10ch;
 	max-height: 16em;
 	overflow-y: auto;
 	margin: 0;
@@ -752,6 +734,68 @@ body {
 
 .type-select-option.selected {
 	box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+}
+
+/* Any type, typed: the first row of a free dropdown. */
+.type-select-field {
+	display: block;
+	box-sizing: border-box;
+	width: calc(100% - 8px);
+	min-width: 14ch;
+	margin: 2px 4px 4px;
+	padding: 1px 4px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, var(--tk-border));
+	border-radius: var(--tk-radius);
+	font: inherit;
+}
+
+.type-select-field:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+/* Widen: under the line, a track per level of nesting, each part's anchor a
+   button opening its wider types. A chosen part's anchor is coloured and
+   thicker. */
+.widen-track {
+	position: relative;
+	height: 16px;
+}
+
+.widen-track .type-select {
+	position: static;
+}
+
+.widen-anchor {
+	position: absolute;
+	top: 0;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: none;
+	cursor: pointer;
+	opacity: 0.7;
+}
+
+.widen-anchor:hover,
+.widen-anchor.chosen,
+.widen-anchor[aria-expanded="true"] {
+	opacity: 1;
+}
+
+.widen-anchor.chosen {
+	--anchor-line: 2.5px;
+}
+
+.widen-anchor:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.widen-written {
+	margin-top: 4px;
 }
 
 .hole:hover {
