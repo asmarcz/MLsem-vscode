@@ -43,10 +43,9 @@ interface EditRange {
 	end: { line: number; character: number };
 }
 
-interface HoleResult {
-	range: EditRange;
-	hole: string;
-	value: string;
+interface HolesResult {
+	ok: boolean;
+	holes?: { range: EditRange; hole: string; value: string; lineText: string }[];
 }
 
 interface EditResult {
@@ -207,32 +206,30 @@ async function checkTypes(uri: vscode.Uri, position: vscode.Position, types: str
 	}
 }
 
-// The val lines of [name] in [uri] with resolved holes, grouped by line. The
-// server answers for the whole document; its lines are matched to [name] by
-// their text.
-async function fetchHoles(uri: vscode.Uri, name: string): Promise<HoleLine[]> {
+// The resolved holes of the val lines of the definition at [position],
+// grouped by line. A hole spanning lines is left out: the view shows one
+// line at a time.
+async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<HoleLine[]> {
 	if (!client) return [];
-	let holes: HoleResult[];
+	let result: HolesResult;
 	try {
-		holes = await client.sendRequest<HoleResult[]>("mlsem/holes", { textDocument: { uri: uri.toString() } });
+		result = await client.sendRequest<HolesResult>("mlsem/holes", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+		});
 	} catch {
 		return [];
 	}
-	const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
-	if (!doc) return [];
-	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const valLine = new RegExp(`^\\s*val\\s+(mut\\s+)?${escaped}\\s*:`);
 	const lines = new Map<number, HoleLine>();
-	for (const h of holes) {
+	for (const h of result.holes ?? []) {
 		const line = h.range.start.line;
-		if (h.range.end.line !== line || line >= doc.lineCount) continue;
-		const text = doc.lineAt(line).text;
-		if (!valLine.test(text)) continue;
-		const entry = lines.get(line) ?? { line, text, holes: [] };
+		if (h.range.end.line !== line) continue;
+		const entry = lines.get(line) ?? { line, text: h.lineText, holes: [] };
 		entry.holes.push({ start: h.range.start.character, end: h.range.end.character, hole: h.hole, value: h.value });
 		lines.set(line, entry);
 	}
-	return [...lines.values()].sort((a, b) => a.line - b.line);
+	return [...lines.values()];
 }
 
 // The holes last posted to the panel, which "fillHoles" replaces.
@@ -252,7 +249,7 @@ async function refreshCurrent(): Promise<void> {
 	const overloads = await fetchOverloads(uri, position);
 	if (overloads) postOverloads(overloads);
 	// After the overloads: the holes come from the typecheck they waited for.
-	currentHoles = name ? await fetchHoles(uri, name) : [];
+	currentHoles = name ? await fetchHoles(uri, position) : [];
 	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
 }
 
