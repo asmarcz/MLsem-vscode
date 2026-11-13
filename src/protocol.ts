@@ -117,7 +117,15 @@ export interface Hole {
 	start: number;
 	end: number;
 	hole: string;
-	value: string;
+}
+
+// Values for the holes of a line, in order. A line has one row, or, when
+// its check gave several overloads that disagree on its holes, one per
+// overload: [overload] is its type, and a value is null where the line
+// cannot be that overload.
+export interface HoleRow {
+	overload?: string;
+	values: (string | null)[];
 }
 
 // A val line of the target with resolved holes.
@@ -125,6 +133,7 @@ export interface HoleLine {
 	line: number;
 	text: string;
 	holes: Hole[];
+	rows: HoleRow[];
 }
 
 // A part that repeats in a val type: its key (the part, printed), a
@@ -226,8 +235,9 @@ export type WebviewToExtension =
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
 	// Replace holes of the target's val lines with their types: those given
-	// by line and start character, or all of them.
-	| { type: "fillHoles"; holes?: { line: number; start: number }[] }
+	// by line, row of values and start character, or all those of lines
+	// with a single row.
+	| { type: "fillHoles"; holes?: { line: number; row: number; start: number }[] }
 	// Preview, or write, the type of val line [line] of the target with the
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }

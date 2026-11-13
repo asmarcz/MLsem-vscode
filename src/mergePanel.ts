@@ -54,7 +54,13 @@ interface EditRange {
 
 interface HolesResult {
 	ok: boolean;
-	holes?: { range: EditRange; hole: string; value: string; lineText: string }[];
+	holes?: {
+		range: EditRange;
+		hole: string;
+		// One value, or one per overload of the line's result.
+		rows: { overload: string | null; value: string | null }[];
+		lineText: string;
+	}[];
 }
 
 interface ExtractGroupsResult {
@@ -244,15 +250,30 @@ async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<H
 	} catch {
 		return [];
 	}
-	const lines = new Map<number, HoleLine>();
+	type Raw = NonNullable<HolesResult["holes"]>[number];
+	const byLine = new Map<number, { text: string; holes: Raw[] }>();
 	for (const h of result.holes ?? []) {
 		const line = h.range.start.line;
 		if (h.range.end.line !== line) continue;
-		const entry = lines.get(line) ?? { line, text: h.lineText, holes: [] };
-		entry.holes.push({ start: h.range.start.character, end: h.range.end.character, hole: h.hole, value: h.value });
-		lines.set(line, entry);
+		const entry = byLine.get(line) ?? { text: h.lineText, holes: [] };
+		entry.holes.push(h);
+		byLine.set(line, entry);
 	}
-	return [...lines.values()];
+	// A line's rows: one per overload of its result if a hole has values per
+	// overload, a hole with a single value repeating it in each.
+	return [...byLine.entries()].map(([line, { text, holes }]) => {
+		const widest = holes.reduce((a, h) => (h.rows.length > a.rows.length ? h : a), holes[0]);
+		const rows = widest.rows.map((r, k) => ({
+			overload: r.overload ?? undefined,
+			values: holes.map((h) => (h.rows.length === widest.rows.length ? h.rows[k] : h.rows[0])?.value ?? null),
+		}));
+		return {
+			line,
+			text,
+			holes: holes.map((h) => ({ start: h.range.start.character, end: h.range.end.character, hole: h.hole })),
+			rows,
+		};
+	});
 }
 
 // The repeated parts of the val lines of the definition at [position].
@@ -461,15 +482,23 @@ export function openTypeToolkit(
 			await vscode.commands.executeCommand("mlsem.inferTypeWithLlm", currentUri, currentPosition);
 			await refreshCurrent();
 		} else if (message.type === "fillHoles") {
-			if (!currentUri) return;
+			const uri = currentUri;
+			if (!uri) return;
 			const we = new vscode.WorkspaceEdit();
-			const chosen = (line: number, start: number) =>
-				message.holes === undefined || message.holes.some((h) => h.line === line && h.start === start);
+			// The row of values to fill line [l] from, for its hole at [start]:
+			// the one asked for, or, filling all, the line's only row.
+			const rowOf = (l: HoleLine, start: number) =>
+				message.holes === undefined
+					? l.rows.length === 1
+						? 0
+						: undefined
+					: message.holes.find((h) => h.line === l.line && h.start === start)?.row;
 			for (const l of currentHoles) {
-				for (const h of l.holes) {
-					if (!chosen(l.line, h.start)) continue;
-					we.replace(currentUri, new vscode.Range(l.line, h.start, l.line, h.end), h.value);
-				}
+				l.holes.forEach((h, i) => {
+					const row = rowOf(l, h.start);
+					const value = row === undefined ? null : l.rows[row]?.values[i];
+					if (value) we.replace(uri, new vscode.Range(l.line, h.start, l.line, h.end), value);
+				});
 			}
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
