@@ -732,8 +732,9 @@ body {
 	background: var(--vscode-list-hoverBackground, var(--tk-border-soft));
 }
 
-/* Resolve: how many leading arguments make a case, as a row of toggles. */
-.resolve-depth {
+/* Domain subtraction: how many leading arguments make a case, as a row of
+   toggles. */
+.subtract-depth {
 	display: inline-flex;
 	align-items: center;
 	gap: 2px;
@@ -742,7 +743,7 @@ body {
 	border: none;
 }
 
-.resolve-depth legend {
+.subtract-depth legend {
 	float: left;
 	margin-right: 6px;
 	padding: 0;
@@ -750,7 +751,7 @@ body {
 	opacity: var(--tk-dim);
 }
 
-.resolve-depth-btn {
+.subtract-depth-btn {
 	min-width: 22px;
 	padding: 1px 6px;
 	border: 1px solid var(--tk-border);
@@ -762,12 +763,12 @@ body {
 	cursor: pointer;
 }
 
-.resolve-depth-btn.active {
+.subtract-depth-btn.active {
 	border-color: var(--vscode-focusBorder);
 	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
 }
 
-.resolve-depth-btn:focus-visible {
+.subtract-depth-btn:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 1px;
 }

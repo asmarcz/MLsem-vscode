@@ -41,11 +41,11 @@ export interface Overload {
 	instances: CallInstance[];
 }
 
-// The binding's val lines with the selected overloads' overlap resolved (a
-// line that splits holds several, separated by newlines), how many changed,
-// the selected ones the others cover (unreachable), and how many leading
-// arguments all the selected overloads take.
-export interface ResolvePreview {
+// The binding's val lines after domain subtraction on the selected overloads
+// (a line that splits holds several, separated by newlines), how many
+// changed, the selected ones the others cover (unreachable), and how many
+// leading arguments all the selected overloads take.
+export interface SubtractPreview {
 	lines: string[];
 	changed: number;
 	unreachable: string[];
@@ -279,9 +279,9 @@ export type ExtensionToWebview =
 	// for; or why there are none.
 	| { type: "parts"; tool: PartTool; lines: PartLine[]; reason?: string }
 	| { type: "partsApplied"; tool: PartTool; error?: string }
-	// The selected overloads with their overlap resolved.
-	| { type: "resolvePreview"; ok: boolean; preview?: ResolvePreview; error?: string }
-	| { type: "resolved"; error?: string }
+	// The selected overloads after domain subtraction.
+	| { type: "subtractPreview"; ok: boolean; preview?: SubtractPreview; error?: string }
+	| { type: "subtracted"; error?: string }
 	// From the panel's title bar buttons.
 	| { type: "setAllCollapsed"; collapsed: boolean }
 	// The active theme's style for each scope of the MLsem grammar. Sent on
@@ -303,10 +303,10 @@ export type WebviewToExtension =
 	| { type: "applyExtract"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
 	// Write what was picked for parts in a part tool.
 	| { type: "applyParts"; tool: PartTool; edits: PartEdit[] }
-	// Preview, or write, the selected overloads with their overlap resolved.
+	// Preview, or write, the selected overloads after domain subtraction.
 	// [depth]: how many leading arguments make a case.
-	| { type: "requestResolve"; name: string; overloadTexts: string[]; depth: number }
-	| { type: "applyResolve"; name: string; overloadTexts: string[]; depth: number }
+	| { type: "requestSubtract"; name: string; overloadTexts: string[]; depth: number }
+	| { type: "applySubtract"; name: string; overloadTexts: string[]; depth: number }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
@@ -351,8 +351,8 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	extracted: true,
 	parts: true,
 	partsApplied: true,
-	resolvePreview: true,
-	resolved: true,
+	subtractPreview: true,
+	subtracted: true,
 	setAllCollapsed: true,
 	tokenColors: true,
 };

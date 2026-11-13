@@ -91,7 +91,7 @@ interface EditResult {
 	error?: string;
 }
 
-interface ResolveResult {
+interface SubtractResult {
 	ok: boolean;
 	lines?: string[];
 	changed?: number;
@@ -640,12 +640,12 @@ export function openTypeToolkit(
 				text: result.text,
 				error: result.error,
 			});
-		} else if (message.type === "requestResolve" || message.type === "applyResolve") {
+		} else if (message.type === "requestSubtract" || message.type === "applySubtract") {
 			const uri = currentUri;
 			if (!uri || !client) return;
-			let result: ResolveResult;
+			let result: SubtractResult;
 			try {
-				result = await client.sendRequest<ResolveResult>("mlsem/resolveOverlap", {
+				result = await client.sendRequest<SubtractResult>("mlsem/subtractDomains", {
 					textDocument: { uri: uri.toString() },
 					name: message.name,
 					overloadTexts: message.overloadTexts,
@@ -655,9 +655,9 @@ export function openTypeToolkit(
 			} catch (e) {
 				result = { ok: false, error: String(e) };
 			}
-			if (message.type === "requestResolve") {
+			if (message.type === "requestSubtract") {
 				panel?.webview.postMessage({
-					type: "resolvePreview",
+					type: "subtractPreview",
 					ok: result.ok,
 					preview:
 						result.ok && result.lines
@@ -673,7 +673,7 @@ export function openTypeToolkit(
 				return;
 			}
 			const error = await applyEditResult({ ...result, uri: uri.toString() });
-			panel?.webview.postMessage({ type: "resolved", error });
+			panel?.webview.postMessage({ type: "subtracted", error });
 		} else if (message.type === "apply" && message.mode === "generalize") {
 			// The generalized type is written through mlsem/checkSignature's edit,
 			// even when it does not check: the user may refine it further.

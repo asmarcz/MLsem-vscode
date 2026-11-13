@@ -20,7 +20,7 @@ import {
 	type PartLine,
 	type PartTool,
 	type Precision,
-	type ResolvePreview,
+	type SubtractPreview,
 	sameModel,
 	type TokenStyle,
 	type TypePart,
@@ -67,10 +67,10 @@ interface AppState {
 	// Overload texts picked for merging.
 	selected: string[];
 	// The two ways of merging the selected overloads, previewed side by side,
-	// and resolving their overlap.
+	// and domain subtraction on them.
 	merge: ToolState<string>;
 	generalize: ToolState<string>;
-	resolve: ToolState<ResolvePreview>;
+	subtract: ToolState<SubtractPreview>;
 	// What came with the generalize preview: how it compares with the
 	// overloads, and whether the type checks.
 	generalized: { precision: Precision | null; check: GeneralizeCheck } | null;
@@ -141,7 +141,7 @@ type Action =
 	| { type: "EXTRACT_APPLYING" }
 	| { type: "PARTS_APPLYING"; tool: PartTool }
 	| { type: "APPLYING"; mode: MergeMode }
-	| { type: "RESOLVE_APPLYING" }
+	| { type: "SUBTRACT_APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "SET_ASSIGNMENTS"; overload: string; values: Record<string, string> }
 	| { type: "INST_APPLYING" }
@@ -155,7 +155,7 @@ const initialState: AppState = {
 	selected: [],
 	merge: initialToolState,
 	generalize: initialToolState,
-	resolve: initialToolState,
+	subtract: initialToolState,
 	generalized: null,
 	assignments: {},
 	instantiate: initialToolState,
@@ -250,7 +250,7 @@ function reducer(state: AppState, action: Action): AppState {
 				selected: kept,
 				merge: { ...state.merge, preview: null, stale: kept.length < state.selected.length, error: null },
 				generalize: { ...state.generalize, preview: null, error: null },
-				resolve: { ...state.resolve, preview: null, error: null },
+				subtract: { ...state.subtract, preview: null, error: null },
 				generalized: null,
 				assignments,
 				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
@@ -350,16 +350,16 @@ function reducer(state: AppState, action: Action): AppState {
 				selected,
 				merge: { ...state.merge, preview: null, error: null },
 				generalize: { ...state.generalize, preview: null, error: null },
-				resolve: { ...state.resolve, preview: null, error: null },
+				subtract: { ...state.subtract, preview: null, error: null },
 				generalized: null,
 			};
 		}
-		case "resolvePreview":
-			return { ...state, resolve: withPreview(state.resolve, action.ok, action.preview, action.error) };
-		case "RESOLVE_APPLYING":
-			return { ...state, resolve: { ...state.resolve, applying: true } };
-		case "resolved":
-			return { ...state, resolve: withApplied(state.resolve, action.error) };
+		case "subtractPreview":
+			return { ...state, subtract: withPreview(state.subtract, action.ok, action.preview, action.error) };
+		case "SUBTRACT_APPLYING":
+			return { ...state, subtract: { ...state.subtract, applying: true } };
+		case "subtracted":
+			return { ...state, subtract: withApplied(state.subtract, action.error) };
 		case "preview":
 			if (action.mode === "collapse")
 				return { ...state, merge: withPreview(state.merge, action.ok, action.text, action.error) };
@@ -501,14 +501,14 @@ const APPLY_TITLES: Record<MergeMode, { apply: string; replace: string; insert: 
 };
 
 function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const { merge, generalize, resolve } = state;
+	const { merge, generalize, subtract } = state;
 	// One apply at a time: all write the same declarations.
-	const applying = merge.applying || generalize.applying || resolve.applying;
+	const applying = merge.applying || generalize.applying || subtract.applying;
 	const claimApply = useApplyGuard(applying);
 	const g = state.generalized;
-	const r = resolve.preview;
-	// How many leading arguments make a case for Resolve: at most as many as
-	// all the selected overloads take.
+	const r = subtract.preview;
+	// How many leading arguments make a case for domain subtraction: at most
+	// as many as all the selected overloads take.
 	const [depth, setDepth] = useState(1);
 	const maxDepth = r?.maxDepth ?? 1;
 	useEffect(() => {
@@ -530,18 +530,18 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	useEffect(() => {
 		if (state.selected.length === 0 || !state.binding) return;
 		vscodeApi.postMessage({
-			type: "requestResolve",
+			type: "requestSubtract",
 			name: state.binding.name,
 			overloadTexts: state.selected,
 			depth,
 		});
 	}, [state.selected, state.binding, depth]);
 
-	function handleResolve() {
+	function handleSubtract() {
 		if (state.selected.length === 0 || !state.binding || !claimApply()) return;
-		dispatch({ type: "RESOLVE_APPLYING" });
+		dispatch({ type: "SUBTRACT_APPLYING" });
 		vscodeApi.postMessage({
-			type: "applyResolve",
+			type: "applySubtract",
 			name: state.binding.name,
 			overloadTexts: state.selected,
 			depth,
@@ -664,16 +664,16 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 								class="result-title"
 								title="Make the cases disjoint as first-match pattern matching does: each case minus those of the overloads before it. A case is the first arguments, as many as picked; a case strictly inside another goes first, otherwise the order of the val lines. A case can split into several val lines."
 							>
-								Resolve overlap
+								Domain subtraction
 							</p>
 							{maxDepth > 1 && (
-								<fieldset class="resolve-depth">
+								<fieldset class="subtract-depth">
 									<legend>Arguments</legend>
 									{Array.from({ length: maxDepth }, (_, i) => i + 1).map((d) => (
 										<button
 											key={d}
 											type="button"
-											class={`resolve-depth-btn${d === depth ? " active" : ""}`}
+											class={`subtract-depth-btn${d === depth ? " active" : ""}`}
 											aria-pressed={d === depth}
 											title={d === 1 ? "Cases are the first argument" : `Cases are the first ${d} arguments`}
 											onClick={() => setDepth(d)}
@@ -688,12 +688,12 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 								type="button"
 								title="Rewrite the domains of the val lines"
 								disabled={state.selected.length === 0 || applying || !r || r.changed === 0}
-								onClick={handleResolve}
+								onClick={handleSubtract}
 							>
 								Apply
 							</button>
 						</div>
-						{resolve.error && <p class="error-note">{resolve.error}</p>}
+						{subtract.error && <p class="error-note">{subtract.error}</p>}
 						{r ? (
 							<>
 								<div class="surface code-text preview-block preview-lines">
@@ -713,7 +713,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 								)}
 							</>
 						) : (
-							!resolve.error && (
+							!subtract.error && (
 								<div class="surface code-text preview-block preview-placeholder">
 									{state.selected.length === 0 ? "Select overloads to see a preview." : "Loading preview…"}
 								</div>
