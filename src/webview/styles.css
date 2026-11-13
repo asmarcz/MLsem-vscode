@@ -554,6 +554,41 @@ body {
 	font-family: var(--vscode-font-family);
 }
 
+/* --- Draft holes ---
+   Each val line as written, then filled in with a Fill button beside it. A
+   hole and the type that replaces it are marked alike. */
+.hole-line {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: 10px;
+}
+
+.hole-line > .preview-block {
+	border-color: var(--tk-border);
+}
+
+.hole-filled-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.hole-filled-row > .preview-block {
+	flex: 1;
+	min-width: 0;
+}
+
+.hole {
+	padding: 0 2px;
+	border-radius: var(--tk-radius);
+	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 22%, transparent);
+}
+
+.hole-filled {
+	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
+}
+
 .preview-lines {
 	display: flex;
 	flex-direction: column;

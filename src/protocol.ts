@@ -111,6 +111,22 @@ export interface LlmSettings {
 	timeoutCountsAsFail: boolean;
 }
 
+// A hole of a draft val line and the type it was resolved to, at
+// characters [start, end) of the line.
+export interface Hole {
+	start: number;
+	end: number;
+	hole: string;
+	value: string;
+}
+
+// A val line of the target with resolved holes.
+export interface HoleLine {
+	line: number;
+	text: string;
+	holes: Hole[];
+}
+
 export type ExtensionToWebview =
 	| {
 			type: "overloads";
@@ -143,13 +159,19 @@ export type ExtensionToWebview =
 	// The name of the definition every tool works on, found from the parse so
 	// that it may not typecheck; null when the target is not in a definition.
 	// Sent before the target's "overloads".
-	| { type: "target"; name: string | null };
+	| { type: "target"; name: string | null }
+	// The val lines of the target with resolved holes. Sent after its
+	// "overloads".
+	| { type: "holes"; lines: HoleLine[] };
 
 export type WebviewToExtension =
 	| { type: "ready" }
 	// Run the LLM type inference on the panel's current target.
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
+	// Replace the holes of the target's val lines with their types: those of
+	// [line] only, or all of them.
+	| { type: "fillHoles"; line?: number }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
@@ -188,6 +210,7 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	llmStatus: true,
 	llmSettings: true,
 	target: true,
+	holes: true,
 };
 
 // The extension host is a separate process, so what arrives over postMessage is

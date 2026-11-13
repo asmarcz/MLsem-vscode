@@ -4,6 +4,7 @@ import {
 	type Binding,
 	type ExtensionToWebview,
 	type GeneralizeCheck,
+	type HoleLine,
 	type Instantiation,
 	isFromExtension,
 	type LlmAttempt,
@@ -71,11 +72,13 @@ interface AppState {
 	target: string | null;
 	// Why the overload tools have no binding, when the request failed.
 	overloadsFailure: string | null;
+	// The target's val lines with resolved holes.
+	holes: HoleLine[];
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
 	collapsed: Record<SectionId, boolean>;
 }
 
-type SectionId = "merge" | "instantiate" | "llm";
+type SectionId = "holes" | "merge" | "instantiate" | "llm";
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
@@ -101,7 +104,8 @@ const initialState: AppState = {
 	llmStatus: { state: "idle" },
 	target: null,
 	overloadsFailure: null,
-	collapsed: { merge: false, instantiate: false, llm: false },
+	holes: [],
+	collapsed: { holes: false, merge: false, instantiate: false, llm: false },
 };
 
 // Drop assignment entries for overloads that no longer exist; report whether
@@ -183,6 +187,8 @@ function reducer(state: AppState, action: Action): AppState {
 			return { ...state, llmStatus: action.status };
 		case "target":
 			return { ...state, target: action.name };
+		case "holes":
+			return { ...state, holes: action.lines };
 		case "TOGGLE": {
 			const t = action.text;
 			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
@@ -625,6 +631,66 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	);
 }
 
+// A val line with its holes marked, or, with [filled], with the types they
+// were resolved to in their place.
+function HoleText({ line, filled }: { line: HoleLine; filled: boolean }) {
+	const parts: ComponentChildren[] = [];
+	let at = 0;
+	for (const h of line.holes) {
+		parts.push(line.text.slice(at, h.start));
+		parts.push(
+			<span key={h.start} class={filled ? "hole hole-filled" : "hole"}>
+				{filled ? h.value : line.text.slice(h.start, h.end)}
+			</span>,
+		);
+		at = h.end;
+	}
+	parts.push(line.text.slice(at));
+	return <>{parts}</>;
+}
+
+// The draft val lines of the target: each as written and with its holes
+// filled in, with a button to write the filled line.
+function HolesTool({ state }: { state: AppState }) {
+	return (
+		<>
+			<p class="note tool-subtitle">The types the holes of the draft signature were resolved to.</p>
+			{state.holes.map((l) => (
+				<div key={l.line} class="hole-line">
+					<div class="surface code-text preview-block">
+						<HoleText line={l} filled={false} />
+					</div>
+					<div class="hole-filled-row">
+						<div class="surface code-text preview-block">
+							<HoleText line={l} filled={true} />
+						</div>
+						<button
+							class="btn btn-secondary"
+							type="button"
+							title="Write this line with its holes filled in"
+							onClick={() => vscodeApi.postMessage({ type: "fillHoles", line: l.line })}
+						>
+							Fill
+						</button>
+					</div>
+				</div>
+			))}
+			{state.holes.length > 1 && (
+				<div class="btn-row">
+					<button
+						class="btn btn-primary"
+						type="button"
+						title="Write every line with its holes filled in"
+						onClick={() => vscodeApi.postMessage({ type: "fillHoles" })}
+					>
+						Fill all
+					</button>
+				</div>
+			)}
+		</>
+	);
+}
+
 // A collapsible section in the style of VS Code's view panes: a full-width
 // header with a chevron and an uppercase title, and the body below it.
 function Section({
@@ -883,6 +949,11 @@ function App() {
 		<>
 			<style>{css}</style>
 			<div class="dashboard">
+				{state.holes.length > 0 && (
+					<Section id="holes" title="Draft holes" state={state} dispatch={dispatch}>
+						<HolesTool state={state} />
+					</Section>
+				)}
 				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch}>
 					{state.found ? <MergeTool state={state} dispatch={dispatch} /> : notFound}
 				</Section>

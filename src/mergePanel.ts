@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
 import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
-import type { ExtensionToWebview, Precision, WebviewToExtension } from "./protocol";
+import type { ExtensionToWebview, HoleLine, Precision, WebviewToExtension } from "./protocol";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
 
@@ -41,6 +41,12 @@ interface CheckSignatureResult {
 interface EditRange {
 	start: { line: number; character: number };
 	end: { line: number; character: number };
+}
+
+interface HoleResult {
+	range: EditRange;
+	hole: string;
+	value: string;
 }
 
 interface EditResult {
@@ -201,6 +207,37 @@ async function checkTypes(uri: vscode.Uri, position: vscode.Position, types: str
 	}
 }
 
+// The val lines of [name] in [uri] with resolved holes, grouped by line. The
+// server answers for the whole document; its lines are matched to [name] by
+// their text.
+async function fetchHoles(uri: vscode.Uri, name: string): Promise<HoleLine[]> {
+	if (!client) return [];
+	let holes: HoleResult[];
+	try {
+		holes = await client.sendRequest<HoleResult[]>("mlsem/holes", { textDocument: { uri: uri.toString() } });
+	} catch {
+		return [];
+	}
+	const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
+	if (!doc) return [];
+	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const valLine = new RegExp(`^\\s*val\\s+(mut\\s+)?${escaped}\\s*:`);
+	const lines = new Map<number, HoleLine>();
+	for (const h of holes) {
+		const line = h.range.start.line;
+		if (h.range.end.line !== line || line >= doc.lineCount) continue;
+		const text = doc.lineAt(line).text;
+		if (!valLine.test(text)) continue;
+		const entry = lines.get(line) ?? { line, text, holes: [] };
+		entry.holes.push({ start: h.range.start.character, end: h.range.end.character, hole: h.hole, value: h.value });
+		lines.set(line, entry);
+	}
+	return [...lines.values()].sort((a, b) => a.line - b.line);
+}
+
+// The holes last posted to the panel, which "fillHoles" replaces.
+let currentHoles: HoleLine[] = [];
+
 // Re-fetch the panel's target and post it to every tool, whatever it is —
 // used for explicit (re)opens and refreshes, where "nothing here" is useful
 // feedback. The target's name is posted first: the overloads need the
@@ -214,6 +251,9 @@ async function refreshCurrent(): Promise<void> {
 	panel?.webview.postMessage({ type: "target", name: name ?? null });
 	const overloads = await fetchOverloads(uri, position);
 	if (overloads) postOverloads(overloads);
+	// After the overloads: the holes come from the typecheck they waited for.
+	currentHoles = name ? await fetchHoles(uri, name) : [];
+	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
 }
 
 // Follow the editor cursor: retarget the panel to the definition under
@@ -333,6 +373,17 @@ export function openTypeToolkit(
 		} else if (message.type === "inferWithLlm") {
 			if (!currentUri || !currentPosition) return;
 			await vscode.commands.executeCommand("mlsem.inferTypeWithLlm", currentUri, currentPosition);
+			await refreshCurrent();
+		} else if (message.type === "fillHoles") {
+			if (!currentUri) return;
+			const we = new vscode.WorkspaceEdit();
+			for (const l of currentHoles) {
+				if (message.line !== undefined && l.line !== message.line) continue;
+				for (const h of l.holes) {
+					we.replace(currentUri, new vscode.Range(l.line, h.start, l.line, h.end), h.value);
+				}
+			}
+			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
 		} else if (message.type === "setTimeoutCountsAsFail") {
 			await config.setLlmTimeoutCountsAsFail(message.value);
