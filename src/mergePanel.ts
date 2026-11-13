@@ -12,6 +12,7 @@ import type {
 	Precision,
 	WebviewToExtension,
 } from "./protocol";
+import { tokenColors } from "./themeColors";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
 
@@ -422,17 +423,36 @@ export function openTypeToolkit(
 			},
 		});
 	}
+	// The theme's colours for MLsem's scopes, for highlighting as in the editor.
+	function postTokenColors() {
+		let colors = {};
+		try {
+			colors = tokenColors(context.extensionPath);
+		} catch {
+			// Unreadable theme: the panel shows plain text.
+		}
+		panel?.webview.postMessage({ type: "tokenColors", colors });
+	}
 	const llmSubscriptions = [
 		onLlmStatus((status) => panel?.webview.postMessage({ type: "llmStatus", status })),
 		vscode.workspace.onDidChangeConfiguration((e) => {
 			if (e.affectsConfiguration("mlsem.llm")) postLlmSettings();
+			if (
+				e.affectsConfiguration("workbench") ||
+				e.affectsConfiguration("window.autoDetectColorScheme") ||
+				e.affectsConfiguration("window.autoDetectHighContrast") ||
+				e.affectsConfiguration("editor.tokenColorCustomizations")
+			)
+				postTokenColors();
 		}),
+		vscode.window.onDidChangeActiveColorTheme(() => postTokenColors()),
 	];
 
 	panel.webview.onDidReceiveMessage(async (message: WebviewToExtension) => {
 		if (!panel || !client) return;
 
 		if (message.type === "ready") {
+			postTokenColors();
 			postLlmSettings();
 			panel.webview.postMessage({ type: "llmStatus", status: llmStatus() });
 			await refreshCurrent();

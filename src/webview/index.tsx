@@ -18,9 +18,11 @@ import {
 	type Overload,
 	type Precision,
 	sameModel,
+	type TokenStyle,
 	triesText,
 	type WebviewToExtension,
 } from "../protocol";
+import { Code, TokenColors } from "./highlight";
 import css from "./styles.css";
 
 declare function acquireVsCodeApi(): {
@@ -80,6 +82,8 @@ interface AppState {
 	holes: HoleLine[];
 	selectedHoles: string[];
 	extract: ExtractState;
+	// The editor theme's style for each MLsem scope, for highlighting.
+	tokenColors: Record<string, TokenStyle>;
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
 	collapsed: Record<SectionId, boolean>;
 }
@@ -135,6 +139,7 @@ const initialState: AppState = {
 	holes: [],
 	selectedHoles: [],
 	extract: initialExtract,
+	tokenColors: {},
 	collapsed: { holes: false, extract: false, merge: false, instantiate: false, llm: false },
 };
 
@@ -182,6 +187,7 @@ function reducer(state: AppState, action: Action): AppState {
 					overloadsFailure: action.reason ?? null,
 					// From the parse, sent before the overloads.
 					extract: state.extract,
+					tokenColors: state.tokenColors,
 					collapsed: state.collapsed,
 				};
 			}
@@ -213,6 +219,8 @@ function reducer(state: AppState, action: Action): AppState {
 		}
 		case "TOGGLE_SECTION":
 			return { ...state, collapsed: { ...state.collapsed, [action.id]: !state.collapsed[action.id] } };
+		case "tokenColors":
+			return { ...state, tokenColors: action.colors };
 		case "setAllCollapsed": {
 			const ids: SectionId[] = ["holes", "extract", "merge", "instantiate", "llm"];
 			return {
@@ -481,7 +489,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	function preview(tool: ToolState<string>, loading: string, precision?: Precision) {
 		return tool.preview ? (
 			<div class={`surface code-text preview-block${precision ? ` precision-edge-${precision}` : ""}`}>
-				{tool.preview}
+				<Code text={tool.preview} />
 				{precision && <PrecisionNote precision={precision} />}
 			</div>
 		) : (
@@ -512,7 +520,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 								checked={state.selected.includes(text)}
 								onChange={() => dispatch({ type: "TOGGLE", text })}
 							/>
-							{text}
+							<Code text={text} />
 						</label>
 					))}
 				</div>
@@ -629,7 +637,9 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 					return (
 						<div key={text} class="surface inst-overload">
 							<div class="inst-overload-main">
-								<div class="code-text inst-overload-text">{text}</div>
+								<div class="code-text inst-overload-text">
+									<Code text={text} />
+								</div>
 								{vars.length === 0 ? (
 									<p class="note note-absent empty-note">No type variables.</p>
 								) : (
@@ -696,7 +706,9 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 							{/* Keyed by position: two overloads can instantiate to the same
 							    signature, so the text is not a unique identity here. */}
 							{inst.preview.map((line, i) => (
-								<div key={i}>{line}</div>
+								<div key={i}>
+									<Code text={line} />
+								</div>
 							))}
 						</div>
 					) : (
@@ -743,9 +755,11 @@ function HoleText({
 }) {
 	const parts: ComponentChildren[] = [];
 	let at = 0;
+	// The text around holes ends at a hole, so highlighting it piece by piece
+	// splits no token.
 	for (const h of line.holes) {
 		const on = selected.includes(holeKey(line.line, h.start));
-		parts.push(line.text.slice(at, h.start));
+		parts.push(<Code key={`t${at}`} text={line.text.slice(at, h.start)} />);
 		parts.push(
 			<button
 				key={h.start}
@@ -755,12 +769,12 @@ function HoleText({
 				title={`${h.hole} = ${h.value}`}
 				onClick={() => dispatch({ type: "TOGGLE_HOLE", line: line.line, start: h.start })}
 			>
-				{filled ? h.value : line.text.slice(h.start, h.end)}
+				<Code text={filled ? h.value : line.text.slice(h.start, h.end)} />
 			</button>,
 		);
 		at = h.end;
 	}
-	parts.push(line.text.slice(at));
+	parts.push(<Code key={`t${at}`} text={line.text.slice(at)} />);
 	return <>{parts}</>;
 }
 
@@ -844,8 +858,9 @@ function ExtractText({ line, chosen, hovered }: { line: ExtractLine; chosen: str
 		const t = tint[start];
 		const style = t === null ? undefined : { background: `color-mix(in srgb, ${partColor(t)} 30%, transparent)` };
 		parts.push(
+			// Runs start and end at parts, which are whole tokens.
 			<span key={start} class={outline[start] ? "part-hovered" : undefined} style={style}>
-				{line.text.slice(start, i)}
+				<Code text={line.text.slice(start, i)} />
 			</span>,
 		);
 		start = i;
@@ -1016,10 +1031,10 @@ function ExtractTool({ state, dispatch }: { state: AppState; dispatch: (a: Actio
 										{p?.ok &&
 											p.decls?.map((d) => (
 												<div key={d} class="extract-decl">
-													{d}
+													<Code text={d} />
 												</div>
 											))}
-										{p?.ok ? p.text : "Loading preview…"}
+										{p?.ok && p.text !== undefined ? <Code text={p.text} /> : "Loading preview…"}
 										{p?.linksHoles && <p class="note precision-stronger">The copies of a part share its holes.</p>}
 									</div>
 								</div>
@@ -1097,7 +1112,9 @@ function AttemptsList({ attempts }: { attempts: LlmAttempt[] }) {
 						{a.vals.length > 0 ? (
 							<div class="surface code-text preview-lines attempt-vals">
 								{a.vals.map((v, j) => (
-									<div key={j}>{v}</div>
+									<div key={j}>
+										<Code text={v} />
+									</div>
 								))}
 							</div>
 						) : null}
@@ -1147,7 +1164,9 @@ function LlmStatusView({ status }: { status: LlmStatus }) {
 					{status.vals && status.vals.length > 0 && (
 						<div class="surface code-text preview-block preview-lines">
 							{status.vals.map((v, i) => (
-								<div key={i}>{v}</div>
+								<div key={i}>
+									<Code text={v} />
+								</div>
 							))}
 						</div>
 					)}
@@ -1284,7 +1303,7 @@ function App() {
 		noTarget ??
 		(state.found ? undefined : state.overloadsFailure ? `failed: ${state.overloadsFailure}` : "does not typecheck");
 	return (
-		<>
+		<TokenColors.Provider value={state.tokenColors}>
 			<style>{css}</style>
 			<div class="dashboard">
 				<Section
@@ -1323,7 +1342,7 @@ function App() {
 					<LlmTool state={state} />
 				</Section>
 			</div>
-		</>
+		</TokenColors.Provider>
 	);
 }
 

@@ -155,6 +155,13 @@ export interface ExtractChoice {
 	name: string;
 }
 
+// How the active theme shows a TextMate scope: [fontStyle] as in themes
+// ("italic", "bold", "underline", space-separated).
+export interface TokenStyle {
+	foreground?: string;
+	fontStyle?: string;
+}
+
 export type ExtensionToWebview =
 	| {
 			type: "overloads";
@@ -208,7 +215,10 @@ export type ExtensionToWebview =
 	  }
 	| { type: "extracted"; error?: string }
 	// From the panel's title bar buttons.
-	| { type: "setAllCollapsed"; collapsed: boolean };
+	| { type: "setAllCollapsed"; collapsed: boolean }
+	// The active theme's style for each scope of the MLsem grammar. Sent on
+	// open and whenever the theme or its customizations change.
+	| { type: "tokenColors"; colors: Record<string, TokenStyle> };
 
 export type WebviewToExtension =
 	| { type: "ready" }
@@ -265,6 +275,7 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	extractPreview: true,
 	extracted: true,
 	setAllCollapsed: true,
+	tokenColors: true,
 };
 
 // The extension host is a separate process, so what arrives over postMessage is
