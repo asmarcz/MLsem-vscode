@@ -96,6 +96,7 @@ interface ResolveResult {
 	lines?: string[];
 	changed?: number;
 	unreachable?: string[];
+	maxDepth?: number;
 	edits?: { range: EditRange; newText: string }[];
 	stale?: boolean;
 	error?: string;
@@ -648,6 +649,7 @@ export function openTypeToolkit(
 					textDocument: { uri: uri.toString() },
 					name: message.name,
 					overloadTexts: message.overloadTexts,
+					depth: message.depth,
 					text: textOf(uri),
 				});
 			} catch (e) {
@@ -659,7 +661,12 @@ export function openTypeToolkit(
 					ok: result.ok,
 					preview:
 						result.ok && result.lines
-							? { lines: result.lines, changed: result.changed ?? 0, unreachable: result.unreachable ?? [] }
+							? {
+									lines: result.lines,
+									changed: result.changed ?? 0,
+									unreachable: result.unreachable ?? [],
+									maxDepth: result.maxDepth ?? 1,
+								}
 							: undefined,
 					error: result.stale ? undefined : result.error,
 				});

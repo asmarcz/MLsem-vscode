@@ -732,6 +732,46 @@ body {
 	background: var(--vscode-list-hoverBackground, var(--tk-border-soft));
 }
 
+/* Resolve: how many leading arguments make a case, as a row of toggles. */
+.resolve-depth {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin: 0 0 0 auto;
+	padding: 0;
+	border: none;
+}
+
+.resolve-depth legend {
+	float: left;
+	margin-right: 6px;
+	padding: 0;
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
+}
+
+.resolve-depth-btn {
+	min-width: 22px;
+	padding: 1px 6px;
+	border: 1px solid var(--tk-border);
+	border-radius: var(--tk-radius);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: var(--tk-small-size);
+	cursor: pointer;
+}
+
+.resolve-depth-btn.active {
+	border-color: var(--vscode-focusBorder);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
+}
+
+.resolve-depth-btn:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
 /* What gives an option, after it. */
 .type-select-note {
 	margin-left: 2ch;

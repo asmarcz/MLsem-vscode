@@ -41,12 +41,15 @@ export interface Overload {
 	instances: CallInstance[];
 }
 
-// The binding's val lines with the selected overloads' overlap resolved,
-// how many changed, and the selected ones the others cover (unreachable).
+// The binding's val lines with the selected overloads' overlap resolved (a
+// line that splits holds several, separated by newlines), how many changed,
+// the selected ones the others cover (unreachable), and how many leading
+// arguments all the selected overloads take.
 export interface ResolvePreview {
 	lines: string[];
 	changed: number;
 	unreachable: string[];
+	maxDepth: number;
 }
 
 // The tools that rewrite parts of val types: Widen and Simplify.
@@ -301,8 +304,9 @@ export type WebviewToExtension =
 	// Write what was picked for parts in a part tool.
 	| { type: "applyParts"; tool: PartTool; edits: PartEdit[] }
 	// Preview, or write, the selected overloads with their overlap resolved.
-	| { type: "requestResolve"; name: string; overloadTexts: string[] }
-	| { type: "applyResolve"; name: string; overloadTexts: string[] }
+	// [depth]: how many leading arguments make a case.
+	| { type: "requestResolve"; name: string; overloadTexts: string[]; depth: number }
+	| { type: "applyResolve"; name: string; overloadTexts: string[]; depth: number }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }

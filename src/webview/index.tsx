@@ -507,6 +507,13 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	const claimApply = useApplyGuard(applying);
 	const g = state.generalized;
 	const r = resolve.preview;
+	// How many leading arguments make a case for Resolve: at most as many as
+	// all the selected overloads take.
+	const [depth, setDepth] = useState(1);
+	const maxDepth = r?.maxDepth ?? 1;
+	useEffect(() => {
+		if (depth > maxDepth) setDepth(maxDepth);
+	}, [depth, maxDepth]);
 
 	// Request the previews whenever the selection changes and is non-empty.
 	useEffect(() => {
@@ -518,13 +525,27 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 				overloadTexts: state.selected,
 				mode,
 			});
-		vscodeApi.postMessage({ type: "requestResolve", name: state.binding.name, overloadTexts: state.selected });
 	}, [state.selected, state.binding]);
+
+	useEffect(() => {
+		if (state.selected.length === 0 || !state.binding) return;
+		vscodeApi.postMessage({
+			type: "requestResolve",
+			name: state.binding.name,
+			overloadTexts: state.selected,
+			depth,
+		});
+	}, [state.selected, state.binding, depth]);
 
 	function handleResolve() {
 		if (state.selected.length === 0 || !state.binding || !claimApply()) return;
 		dispatch({ type: "RESOLVE_APPLYING" });
-		vscodeApi.postMessage({ type: "applyResolve", name: state.binding.name, overloadTexts: state.selected });
+		vscodeApi.postMessage({
+			type: "applyResolve",
+			name: state.binding.name,
+			overloadTexts: state.selected,
+			depth,
+		});
 	}
 
 	// append=false,keepOthers=true → Apply (scoped: the result replaces the
@@ -641,10 +662,27 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 						<div class="result-head">
 							<p
 								class="result-title"
-								title="Make the domains disjoint as first-match pattern matching does: each domain minus those of the overloads before it. A domain strictly inside another goes first; otherwise the order of the val lines."
+								title="Make the cases disjoint as first-match pattern matching does: each case minus those of the overloads before it. A case is the first arguments, as many as picked; a case strictly inside another goes first, otherwise the order of the val lines. A case can split into several val lines."
 							>
 								Resolve overlap
 							</p>
+							{maxDepth > 1 && (
+								<fieldset class="resolve-depth">
+									<legend>Arguments</legend>
+									{Array.from({ length: maxDepth }, (_, i) => i + 1).map((d) => (
+										<button
+											key={d}
+											type="button"
+											class={`resolve-depth-btn${d === depth ? " active" : ""}`}
+											aria-pressed={d === depth}
+											title={d === 1 ? "Cases are the first argument" : `Cases are the first ${d} arguments`}
+											onClick={() => setDepth(d)}
+										>
+											{d}
+										</button>
+									))}
+								</fieldset>
+							)}
 							<button
 								class="btn btn-primary"
 								type="button"
@@ -659,12 +697,15 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 						{r ? (
 							<>
 								<div class="surface code-text preview-block preview-lines">
-									{r.lines.map((line, i) => (
-										// Keyed by position: lines are in file order.
-										<div key={i}>
-											<Code text={line} />
-										</div>
-									))}
+									{/* A line that splits holds its new lines. Keyed by
+									    position: lines are in file order. */}
+									{r.lines
+										.flatMap((line) => line.split("\n").map((l) => l.trimStart()))
+										.map((line, i) => (
+											<div key={i}>
+												<Code text={line} />
+											</div>
+										))}
 								</div>
 								{r.changed === 0 && <p class="note">The selected domains do not overlap.</p>}
 								{r.unreachable.length > 0 && (
