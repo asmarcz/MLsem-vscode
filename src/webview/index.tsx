@@ -17,14 +17,15 @@ import {
 	type MergeMode,
 	modelLabel,
 	type Overload,
+	type PartLine,
+	type PartTool,
 	type Precision,
 	type ResolvePreview,
 	sameModel,
 	type TokenStyle,
+	type TypePart,
 	triesText,
 	type WebviewToExtension,
-	type WidenablePart,
-	type WidenLine,
 } from "../protocol";
 import { Code, TokenColors } from "./highlight";
 import css from "./styles.css";
@@ -88,9 +89,9 @@ interface AppState {
 	holes: HoleLine[];
 	selectedHoles: string[];
 	extract: ExtractState;
-	// The part of a val type at the editor's selection and its wider types,
-	// or why there is none.
-	widen: { lines: WidenLine[]; reason: string | null; applying: boolean; error: string | null };
+	// Per part tool, the target's val lines with the parts it has options
+	// for, or why there are none.
+	parts: Record<PartTool, PartsState>;
 	// The editor theme's style for each MLsem scope, for highlighting.
 	tokenColors: Record<string, TokenStyle>;
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
@@ -115,9 +116,20 @@ function extractKey(line: number, key: string) {
 	return `${line}\n${key}`;
 }
 
-type SectionId = "holes" | "extract" | "widen" | "merge" | "instantiate" | "llm";
+// A part tool: the lines from the server, or why there are none, and its
+// apply in flight and error.
+interface PartsState {
+	lines: PartLine[];
+	reason: string | null;
+	applying: boolean;
+	error: string | null;
+}
 
-const SECTION_IDS: SectionId[] = ["holes", "extract", "widen", "merge", "instantiate", "llm"];
+const initialParts: PartsState = { lines: [], reason: null, applying: false, error: null };
+
+type SectionId = "holes" | "extract" | "widen" | "simplify" | "merge" | "instantiate" | "llm";
+
+const SECTION_IDS: SectionId[] = ["holes", "extract", "widen", "simplify", "merge", "instantiate", "llm"];
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
@@ -127,7 +139,7 @@ type Action =
 	| { type: "TOGGLE_EXTRACT"; line: number; key: string }
 	| { type: "SET_EXTRACT_NAME"; line: number; key: string; name: string }
 	| { type: "EXTRACT_APPLYING" }
-	| { type: "WIDEN_APPLYING" }
+	| { type: "PARTS_APPLYING"; tool: PartTool }
 	| { type: "APPLYING"; mode: MergeMode }
 	| { type: "RESOLVE_APPLYING" }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
@@ -154,9 +166,17 @@ const initialState: AppState = {
 	holes: [],
 	selectedHoles: [],
 	extract: initialExtract,
-	widen: { lines: [], reason: null, applying: false, error: null },
+	parts: { widen: initialParts, simplify: initialParts },
 	tokenColors: {},
-	collapsed: { holes: false, extract: false, widen: false, merge: false, instantiate: false, llm: false },
+	collapsed: {
+		holes: false,
+		extract: false,
+		widen: false,
+		simplify: false,
+		merge: false,
+		instantiate: false,
+		llm: false,
+	},
 };
 
 // Drop assignment entries for overloads that no longer exist; report whether
@@ -204,7 +224,7 @@ function reducer(state: AppState, action: Action): AppState {
 					// From the parse, sent before the overloads.
 					extract: state.extract,
 					// Not about the binding.
-					widen: state.widen,
+					parts: state.parts,
 					tokenColors: state.tokenColors,
 					collapsed: state.collapsed,
 				};
@@ -245,17 +265,21 @@ function reducer(state: AppState, action: Action): AppState {
 				...state,
 				collapsed: Object.fromEntries(SECTION_IDS.map((id) => [id, action.collapsed])) as AppState["collapsed"],
 			};
-		case "widen":
+		case "parts": {
 			// [applying] survives: the extension refreshes before it reports the
 			// edit done.
-			return {
-				...state,
-				widen: { ...state.widen, lines: action.lines, reason: action.reason ?? null, error: null },
-			};
-		case "WIDEN_APPLYING":
-			return { ...state, widen: { ...state.widen, applying: true, error: null } };
-		case "widened":
-			return { ...state, widen: { ...state.widen, applying: false, error: action.error ?? null } };
+			const p = state.parts[action.tool];
+			const next = { ...p, lines: action.lines, reason: action.reason ?? null, error: null };
+			return { ...state, parts: { ...state.parts, [action.tool]: next } };
+		}
+		case "PARTS_APPLYING": {
+			const next = { ...state.parts[action.tool], applying: true, error: null };
+			return { ...state, parts: { ...state.parts, [action.tool]: next } };
+		}
+		case "partsApplied": {
+			const next = { ...state.parts[action.tool], applying: false, error: action.error ?? null };
+			return { ...state, parts: { ...state.parts, [action.tool]: next } };
+		}
 		case "llmSettings":
 			return { ...state, llmSettings: action.settings };
 		case "llmStatus":
@@ -933,9 +957,11 @@ let typeSelectCount = 0;
 // listbox: arrows move, Enter or Space picks, Escape closes; a click outside,
 // a scroll or a resize closes too. The list is placed on the page, not in
 // the button's box, so a scrolling container does not cut it. With [free],
-// the list starts with a field where any type can be typed.
+// the list starts with a field where any type can be typed. [notes] are
+// shown dimmed after the options they are for.
 function TypeSelect({
 	options,
+	notes,
 	value,
 	onChange,
 	label,
@@ -947,6 +973,7 @@ function TypeSelect({
 	children,
 }: {
 	options: string[];
+	notes?: Record<string, string>;
 	value: string;
 	onChange: (v: string) => void;
 	label: string;
@@ -1082,6 +1109,7 @@ function TypeSelect({
 							}}
 						>
 							<Code text={o} />
+							{notes?.[o] && <span class="type-select-note">{notes[o]}</span>}
 						</div>
 					))}
 				</div>
@@ -1090,18 +1118,18 @@ function TypeSelect({
 	);
 }
 
-function widenKey(line: number, p: WidenablePart) {
+function partKey(line: number, p: TypePart) {
 	return `${line}:${p.start}:${p.end}`;
 }
 
 // The height of each part of a line among its parts: 0 when none is inside
 // it, else one more than the highest inside. Parts of one height do not
 // nest, so they share a track.
-function partHeights(parts: WidenablePart[]): number[] {
-	const inside = (a: WidenablePart, b: WidenablePart) =>
+function partHeights(parts: TypePart[]): number[] {
+	const inside = (a: TypePart, b: TypePart) =>
 		a !== b && b.start <= a.start && a.end <= b.end && (a.start !== b.start || a.end !== b.end);
-	const heights = new Map<WidenablePart, number>();
-	const height = (p: WidenablePart): number => {
+	const heights = new Map<TypePart, number>();
+	const height = (p: TypePart): number => {
 		const known = heights.get(p);
 		if (known !== undefined) return known;
 		const h = parts.reduce((m, q) => (inside(q, p) ? Math.max(m, height(q) + 1) : m), 0);
@@ -1112,21 +1140,24 @@ function partHeights(parts: WidenablePart[]): number[] {
 }
 
 // A val line: its text, the chosen parts tinted, and under it the anchors
-// of its widenable parts, innermost nearest the text. An anchor opens its
-// part's wider types. Under the block, the line with the choices written.
-function WidenLineView({
+// of the parts a tool has options for, innermost nearest the text. An
+// anchor opens its part's options ([what] says what they are). Under the
+// block, the line with the choices written.
+function PartLineView({
 	line,
+	what,
 	chosen,
 	choose,
 }: {
-	line: WidenLine;
+	line: PartLine;
+	what: string;
 	chosen: Record<string, string>;
-	choose: (p: WidenablePart, v: string) => void;
+	choose: (p: TypePart, v: string) => void;
 }) {
 	const heights = partHeights(line.parts);
 	const tracks = Math.max(-1, ...heights) + 1;
 	const cols = `${line.text.length}ch`;
-	const choice = (p: WidenablePart) => chosen[widenKey(line.line, p)];
+	const choice = (p: TypePart) => chosen[partKey(line.line, p)];
 	// The colour of a chosen part, by its order on the line.
 	const color = (i: number) => partColor(i);
 	// The text, a chosen part tinted.
@@ -1164,11 +1195,12 @@ function WidenLineView({
 							const v = choice(p);
 							return (
 								<TypeSelect
-									key={widenKey(line.line, p)}
-									options={[p.text, ...p.wider]}
+									key={partKey(line.line, p)}
+									options={[p.text, ...p.options.map((o) => o.text)]}
+									notes={Object.fromEntries(p.options.flatMap((o) => (o.label ? [[o.text, o.label]] : [])))}
 									value={v ?? p.text}
 									onChange={(nv) => choose(p, nv)}
-									label={`Wider type for ${p.text}`}
+									label={`${what} for ${p.text}`}
 									buttonClass={`widen-anchor${v !== undefined ? " chosen" : ""}`}
 									buttonStyle={{ left: `${p.start}ch`, width: `${p.end - p.start}ch` }}
 								>
@@ -1193,53 +1225,65 @@ function WidenLineView({
 	);
 }
 
-// The val lines of the target with an anchor under each part that can be
-// widened. Picking a wider type for a part leaves out the choices of the
+// What each part tool offers, for its subtitle and labels.
+const PART_TOOLS: Record<PartTool, { what: string; subtitle: string }> = {
+	widen: {
+		what: "Wider type",
+		subtitle: "Click under a part of a val type to pick a wider type for it, innermost parts nearest the text.",
+	},
+	simplify: {
+		what: "Simplified form",
+		subtitle:
+			"Click under a part of a val type to pick a simplified form of it, each with the steps that give it. Every form means the same.",
+	},
+};
+
+// The val lines of the target with an anchor under each part [tool] has
+// options for. Picking an option for a part leaves out the choices of the
 // parts nested in it or around it. Apply writes every choice.
-function WidenTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const { lines, applying, error } = state.widen;
+function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState; dispatch: (a: Action) => void }) {
+	const { lines, applying, error } = state.parts[tool];
 	const claimApply = useApplyGuard(applying);
 	const [chosen, setChosen] = useState<Record<string, string>>({});
 	// Choices are for the lines as they were: new lines start without any.
 	const linesKey = lines.map((l) => `${l.line}:${l.text}`).join("\n");
 	useEffect(() => setChosen({}), [linesKey]);
-	const choose = (line: WidenLine) => (p: WidenablePart, v: string) =>
+	const choose = (line: PartLine) => (p: TypePart, v: string) =>
 		setChosen((c) => {
 			const next: Record<string, string> = {};
 			for (const q of line.parts) {
-				const k = widenKey(line.line, q);
+				const k = partKey(line.line, q);
 				const overlaps = q.start < p.end && p.start < q.end;
 				if (!overlaps && c[k] !== undefined) next[k] = c[k];
 			}
 			for (const [k, cv] of Object.entries(c)) if (!k.startsWith(`${line.line}:`)) next[k] = cv;
-			if (v !== p.text) next[widenKey(line.line, p)] = v;
+			if (v !== p.text) next[partKey(line.line, p)] = v;
 			return next;
 		});
 	const edits = lines.flatMap((l) =>
 		l.parts.flatMap((p) => {
-			const v = chosen[widenKey(l.line, p)];
+			const v = chosen[partKey(l.line, p)];
 			return v === undefined ? [] : [{ line: l.line, start: p.start, end: p.end, part: p.text, text: v }];
 		}),
 	);
 	const apply = () => {
 		if (edits.length === 0 || !claimApply()) return;
-		dispatch({ type: "WIDEN_APPLYING" });
-		vscodeApi.postMessage({ type: "applyWiden", edits });
+		dispatch({ type: "PARTS_APPLYING", tool });
+		vscodeApi.postMessage({ type: "applyParts", tool, edits });
 	};
+	const { what, subtitle } = PART_TOOLS[tool];
 	return (
 		<>
-			<p class="note tool-subtitle">
-				Click under a part of a val type to pick a wider type for it, innermost parts nearest the text.
-			</p>
+			<p class="note tool-subtitle">{subtitle}</p>
 			{error && <p class="error-note">{error}</p>}
 			{lines.map((l) => (
-				<WidenLineView key={l.line} line={l} chosen={chosen} choose={choose(l)} />
+				<PartLineView key={l.line} line={l} what={what} chosen={chosen} choose={choose(l)} />
 			))}
 			<div class="btn-row">
 				<button
 					class="btn btn-primary"
 					type="button"
-					title={edits.length > 0 ? "Write the picked types" : "Pick a wider type for a part first"}
+					title={edits.length > 0 ? "Write the picked types" : "Pick a type for a part first"}
 					disabled={edits.length === 0 || applying}
 					onClick={apply}
 				>
@@ -1790,15 +1834,14 @@ function App() {
 
 	// Why a tool has nothing to work on, if so.
 	const noTarget = state.target ? undefined : "no definition at the cursor";
-	// The server's reason is a sentence; the label is a phrase.
-	const widenReason = state.widen.reason?.replace(/\.$/, "");
-	const noWiden =
-		noTarget ??
-		(state.widen.lines.some((l) => l.parts.length > 0)
-			? undefined
-			: widenReason
-				? widenReason.charAt(0).toLowerCase() + widenReason.slice(1)
-				: "nothing to widen");
+	// A part tool with no part: the server's reason, a sentence, as a phrase.
+	const noParts = (tool: PartTool, none: string) => {
+		const p = state.parts[tool];
+		if (noTarget) return noTarget;
+		if (p.lines.some((l) => l.parts.length > 0)) return undefined;
+		const reason = p.reason?.replace(/\.$/, "");
+		return reason ? reason.charAt(0).toLowerCase() + reason.slice(1) : none;
+	};
 	const noOverloads =
 		noTarget ??
 		(state.found ? undefined : state.overloadsFailure ? `failed: ${state.overloadsFailure}` : "does not typecheck");
@@ -1826,8 +1869,23 @@ function App() {
 				>
 					<ExtractTool state={state} dispatch={dispatch} />
 				</Section>
-				<Section id="widen" title="Widen" state={state} dispatch={dispatch} unavailable={noWiden}>
-					<WidenTool state={state} dispatch={dispatch} />
+				<Section
+					id="widen"
+					title="Widen"
+					state={state}
+					dispatch={dispatch}
+					unavailable={noParts("widen", "nothing to widen")}
+				>
+					<PartsTool tool="widen" state={state} dispatch={dispatch} />
+				</Section>
+				<Section
+					id="simplify"
+					title="Simplify"
+					state={state}
+					dispatch={dispatch}
+					unavailable={noParts("simplify", "nothing to simplify")}
+				>
+					<PartsTool tool="simplify" state={state} dispatch={dispatch} />
 				</Section>
 				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch} unavailable={noOverloads}>
 					<MergeTool state={state} dispatch={dispatch} />

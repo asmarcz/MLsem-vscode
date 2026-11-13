@@ -9,9 +9,10 @@ import type {
 	ExtractLine,
 	ExtractMode,
 	HoleLine,
+	PartLine,
+	PartTool,
 	Precision,
 	WebviewToExtension,
-	WidenLine,
 } from "./protocol";
 import { tokenColors } from "./themeColors";
 
@@ -340,20 +341,22 @@ async function extractApply(
 // The holes last posted to the panel, which "fillHoles" replaces.
 let currentHoles: HoleLine[] = [];
 
-interface WidenResult {
+interface PartsResult {
 	ok: boolean;
 	error?: string;
-	lines?: WidenLine[];
+	lines?: PartLine[];
 }
 
-// The val lines of the definition at [position] with their widenable parts.
-async function fetchWiden(
+// The val lines of the definition at [position] with the parts [tool] has
+// options for.
+async function fetchParts(
+	tool: PartTool,
 	uri: vscode.Uri,
 	position: vscode.Position,
-): Promise<{ lines: WidenLine[]; reason?: string }> {
+): Promise<{ lines: PartLine[]; reason?: string }> {
 	if (!client) return { lines: [] };
 	try {
-		const result = await client.sendRequest<WidenResult>("mlsem/widen", {
+		const result = await client.sendRequest<PartsResult>(`mlsem/${tool}`, {
 			textDocument: { uri: uri.toString() },
 			position: { line: position.line, character: position.character },
 			text: textOf(uri),
@@ -383,8 +386,10 @@ async function refreshCurrent(): Promise<void> {
 	// After the overloads: the holes come from the typecheck they waited for.
 	currentHoles = name ? await fetchHoles(uri, position) : [];
 	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
-	const widen = name ? await fetchWiden(uri, position) : { lines: [] };
-	panel?.webview.postMessage({ type: "widen", lines: widen.lines, reason: widen.reason });
+	for (const tool of ["widen", "simplify"] as const) {
+		const { lines, reason } = name ? await fetchParts(tool, uri, position) : { lines: [] };
+		panel?.webview.postMessage({ type: "parts", tool, lines, reason });
+	}
 }
 
 // Follow the editor cursor: retarget the panel to the definition under
@@ -571,16 +576,17 @@ export function openTypeToolkit(
 				? await applyEditResult({ ok: true, uri: uri.toString(), edits: r.edits })
 				: (r.error ?? "Could not extract.");
 			panel?.webview.postMessage({ type: "extracted", error });
-		} else if (message.type === "applyWiden") {
+		} else if (message.type === "applyParts") {
 			const uri = currentUri;
+			const tool = message.tool;
 			if (!uri) return;
 			const ranges = message.edits.map((e) => new vscode.Range(e.line, e.start, e.line, e.end));
 			// The document changed since: show the parts as they are now instead.
 			const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
-			// After the refresh, whose "widen" clears the tool's error.
+			// After the refresh, whose "parts" clears the tool's error.
 			if (message.edits.some((e, i) => doc?.getText(ranges[i]) !== e.part)) {
 				await refreshCurrent();
-				panel?.webview.postMessage({ type: "widened", error: "The types changed; showing them again." });
+				panel?.webview.postMessage({ type: "partsApplied", tool, error: "The types changed; showing them again." });
 				return;
 			}
 			const we = new vscode.WorkspaceEdit();
@@ -589,7 +595,7 @@ export function openTypeToolkit(
 			});
 			const ok = await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
-			panel?.webview.postMessage({ type: "widened", error: ok ? undefined : "Could not write the type." });
+			panel?.webview.postMessage({ type: "partsApplied", tool, error: ok ? undefined : "Could not write the type." });
 		} else if (message.type === "setTimeoutCountsAsFail") {
 			await config.setLlmTimeoutCountsAsFail(message.value);
 		} else if (message.type === "selectModel") {

@@ -732,6 +732,14 @@ body {
 	background: var(--vscode-list-hoverBackground, var(--tk-border-soft));
 }
 
+/* What gives an option, after it. */
+.type-select-note {
+	margin-left: 2ch;
+	font-family: var(--vscode-font-family);
+	font-size: var(--tk-small-size);
+	opacity: var(--tk-dim);
+}
+
 .type-select-option.selected {
 	box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
 }

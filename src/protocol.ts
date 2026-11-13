@@ -49,26 +49,30 @@ export interface ResolvePreview {
 	unreachable: string[];
 }
 
+// The tools that rewrite parts of val types: Widen and Simplify.
+export type PartTool = "widen" | "simplify";
+
 // A part of a val line's type at columns [start, end) (parentheses around it
-// included), its text, and its wider types, tightest first, as written in
-// its place.
-export interface WidenablePart {
+// included), its text, and what the tool can write in its place: wider
+// types, tightest first, or simplified forms with the steps giving them.
+export interface TypePart {
 	start: number;
 	end: number;
 	text: string;
-	wider: string[];
+	options: { text: string; label?: string }[];
 }
 
-// A val line of the target, by number, with its widenable parts.
-export interface WidenLine {
+// A val line of the target, by number, with the parts a tool has options
+// for.
+export interface PartLine {
 	line: number;
 	text: string;
-	parts: WidenablePart[];
+	parts: TypePart[];
 }
 
 // A part to replace: its line and columns, its text when it was picked (to
 // notice a change since), and what to write.
-export interface WidenEdit {
+export interface PartEdit {
 	line: number;
 	start: number;
 	end: number;
@@ -268,10 +272,10 @@ export type ExtensionToWebview =
 			linksHoles?: boolean;
 	  }
 	| { type: "extracted"; error?: string }
-	// The target's val lines with their widenable parts; or why there are
-	// none.
-	| { type: "widen"; lines: WidenLine[]; reason?: string }
-	| { type: "widened"; error?: string }
+	// For a part tool, the target's val lines with the parts it has options
+	// for; or why there are none.
+	| { type: "parts"; tool: PartTool; lines: PartLine[]; reason?: string }
+	| { type: "partsApplied"; tool: PartTool; error?: string }
 	// The selected overloads with their overlap resolved.
 	| { type: "resolvePreview"; ok: boolean; preview?: ResolvePreview; error?: string }
 	| { type: "resolved"; error?: string }
@@ -294,8 +298,8 @@ export type WebviewToExtension =
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
 	| { type: "applyExtract"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
-	// Write the picked wider types.
-	| { type: "applyWiden"; edits: WidenEdit[] }
+	// Write what was picked for parts in a part tool.
+	| { type: "applyParts"; tool: PartTool; edits: PartEdit[] }
 	// Preview, or write, the selected overloads with their overlap resolved.
 	| { type: "requestResolve"; name: string; overloadTexts: string[] }
 	| { type: "applyResolve"; name: string; overloadTexts: string[] }
@@ -341,8 +345,8 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	extractGroups: true,
 	extractPreview: true,
 	extracted: true,
-	widen: true,
-	widened: true,
+	parts: true,
+	partsApplied: true,
 	resolvePreview: true,
 	resolved: true,
 	setAllCollapsed: true,
