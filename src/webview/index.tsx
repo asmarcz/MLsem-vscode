@@ -366,11 +366,11 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 		});
 	}
 
-	function actions(mode: MergeMode, tool: ToolState<string>, blocked: boolean) {
+	function actions(mode: MergeMode, tool: ToolState<string>) {
 		return (
 			<ActionRow
 				titles={APPLY_TITLES[mode]}
-				disabled={state.selected.length === 0 || applying || blocked || !tool.preview}
+				disabled={state.selected.length === 0 || applying || !tool.preview}
 				busy={tool.applying}
 				onApply={() => handleApply(mode, false, true)}
 				onReplace={() => handleApply(mode, false, false)}
@@ -428,7 +428,7 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							>
 								Collapse
 							</p>
-							{actions("collapse", merge, false)}
+							{actions("collapse", merge)}
 						</div>
 						{merge.error && <p class="error-note">{merge.error}</p>}
 						{preview(merge, "Loading preview…")}
@@ -437,18 +437,17 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 						<div class="result-head">
 							<p
 								class="result-title"
-								title="One polymorphic type whose instances are the overloads. Keeps which input gives which output, but claims more, so it is checked against the definition before it is written."
+								title="One polymorphic type whose instances are the overloads. Keeps which input gives which output, but may claim more than the definition gives, so it is checked against it."
 							>
 								Generalize
 							</p>
-							{/* A generalized type that does not check is not written. */}
-							{actions("generalize", generalize, g !== null && !g.check.ok)}
+							{actions("generalize", generalize)}
 						</div>
 						{generalize.error && <p class="error-note">{generalize.error}</p>}
 						{preview(generalize, "Generalizing and checking…", g?.precision ?? undefined)}
 						{g && !g.check.ok && (
 							<div class="generalize-status">
-								<p class="error-note">Does not check against the definition, so it cannot be written.</p>
+								<p class="error-note">Does not type check.</p>
 								{g.check.errors.map((e) => (
 									<p key={e} class="surface code-text preview-lines">
 										{e}

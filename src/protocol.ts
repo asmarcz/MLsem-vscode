@@ -9,7 +9,7 @@
 // The two ways overload merging combines the selected overloads, previewed
 // side by side: collapse them into the smallest single arrow containing them
 // (loses precision), or generalize them into a polymorphic type (keeps it,
-// but has to check against the definition).
+// but may not check against the definition).
 export type MergeMode = "collapse" | "generalize";
 
 // Whether a generalized type checks against the definition, with the errors

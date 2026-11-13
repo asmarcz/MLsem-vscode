@@ -378,8 +378,8 @@ export function openTypeToolkit(
 				error: result.error,
 			});
 		} else if (message.type === "apply" && message.mode === "generalize") {
-			// The generalized type is written through mlsem/checkSignature, which
-			// only returns an edit when the new declarations check.
+			// The generalized type is written through mlsem/checkSignature's edit,
+			// even when it does not check: the user may refine it further.
 			const uri = currentUri;
 			const position = currentPosition;
 			if (!uri || !position) return;
@@ -398,9 +398,9 @@ export function openTypeToolkit(
 					? [g.type, ...message.overloads.filter((o) => !message.overloadTexts.includes(o))]
 					: [g.type];
 			const check = await checkTypes(uri, position, types);
-			const applyError = check.ok
-				? await applyEditResult({ ok: true, uri: uri.toString(), edits: check.edit ? [check.edit] : [] })
-				: `The generalized type does not check: ${(check.errors ?? [check.error]).join("; ")}`;
+			const applyError = check.edit
+				? await applyEditResult({ ok: true, uri: uri.toString(), edits: [check.edit] })
+				: (check.error ?? "Could not write the generalized type.");
 			panel?.webview.postMessage({ type: "applied", mode: "generalize", error: applyError });
 		} else if (message.type === "apply") {
 			const uri = currentUri;
