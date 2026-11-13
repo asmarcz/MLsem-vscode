@@ -113,11 +113,11 @@
 				},
 				{
 					"name": "keyword.declaration.mlsem",
-					"match": "\\b(let|val|fun|in|type|where|abstract|mut|suggest)\\b"
+					"match": "\\b(let|and|val|fun|in|type|where|abstract|mut|suggest)\\b"
 				},
 				{
 					"name": "keyword.operator.word.mlsem",
-					"match": "\\b(and|or|is)\\b"
+					"match": "\\b(or|is)\\b"
 				},
 				{
 					"name": "keyword.other.projection.mlsem",

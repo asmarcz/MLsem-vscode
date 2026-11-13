@@ -374,9 +374,11 @@ export function openTypeToolkit(
 		} else if (message.type === "fillHoles") {
 			if (!currentUri) return;
 			const we = new vscode.WorkspaceEdit();
+			const chosen = (line: number, start: number) =>
+				message.holes === undefined || message.holes.some((h) => h.line === line && h.start === start);
 			for (const l of currentHoles) {
-				if (message.line !== undefined && l.line !== message.line) continue;
 				for (const h of l.holes) {
+					if (!chosen(l.line, h.start)) continue;
 					we.replace(currentUri, new vscode.Range(l.line, h.start, l.line, h.end), h.value);
 				}
 			}

@@ -579,14 +579,36 @@ body {
 	min-width: 0;
 }
 
+/* A hole is a toggle inside the code text: a button reset to look like the
+   text around it. Selected holes get a solid outline in both lines. */
 .hole {
+	margin: 0;
 	padding: 0 2px;
+	border: 1px solid transparent;
 	border-radius: var(--tk-radius);
 	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 22%, transparent);
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
 }
 
 .hole-filled {
 	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
+}
+
+.hole:hover {
+	border-color: var(--tk-border-strong);
+}
+
+.hole:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.hole-selected,
+.hole-selected:hover {
+	border-color: var(--vscode-focusBorder);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
 }
 
 .preview-lines {

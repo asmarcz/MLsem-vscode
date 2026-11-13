@@ -72,8 +72,10 @@ interface AppState {
 	target: string | null;
 	// Why the overload tools have no binding, when the request failed.
 	overloadsFailure: string | null;
-	// The target's val lines with resolved holes.
+	// The target's val lines with resolved holes, and the holes picked for
+	// Fill, by [holeKey].
 	holes: HoleLine[];
+	selectedHoles: string[];
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
 	collapsed: Record<SectionId, boolean>;
 }
@@ -84,6 +86,7 @@ type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
 	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
+	| { type: "TOGGLE_HOLE"; line: number; start: number }
 	| { type: "APPLYING"; mode: MergeMode }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "INST_APPLYING" }
@@ -105,6 +108,7 @@ const initialState: AppState = {
 	target: null,
 	overloadsFailure: null,
 	holes: [],
+	selectedHoles: [],
 	collapsed: { holes: false, merge: false, instantiate: false, llm: false },
 };
 
@@ -187,8 +191,24 @@ function reducer(state: AppState, action: Action): AppState {
 			return { ...state, llmStatus: action.status };
 		case "target":
 			return { ...state, target: action.name };
-		case "holes":
-			return { ...state, holes: action.lines };
+		case "holes": {
+			// Keep the selection of holes that are still there.
+			const keys = action.lines.flatMap((l) => l.holes.map((h) => holeKey(l.line, h.start)));
+			return { ...state, holes: action.lines, selectedHoles: state.selectedHoles.filter((k) => keys.includes(k)) };
+		}
+		case "TOGGLE_HOLE": {
+			// A named hole ('_a) is one variable: its occurrences on the line
+			// are picked together.
+			const line = state.holes.find((l) => l.line === action.line);
+			const hole = line?.holes.find((h) => h.start === action.start);
+			if (!line || !hole) return state;
+			const group = line.holes
+				.filter((h) => h.start === hole.start || (hole.hole !== "_" && h.hole === hole.hole))
+				.map((h) => holeKey(line.line, h.start));
+			const on = state.selectedHoles.includes(holeKey(line.line, hole.start));
+			const rest = state.selectedHoles.filter((k) => !group.includes(k));
+			return { ...state, selectedHoles: on ? rest : [...rest, ...group] };
+		}
 		case "TOGGLE": {
 			const t = action.text;
 			const selected = state.selected.includes(t) ? state.selected.filter((x) => x !== t) : [...state.selected, t];
@@ -631,17 +651,41 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	);
 }
 
+// Identifies a hole across refreshes: its line and start character.
+function holeKey(line: number, start: number) {
+	return `${line}:${start}`;
+}
+
 // A val line with its holes marked, or, with [filled], with the types they
-// were resolved to in their place.
-function HoleText({ line, filled }: { line: HoleLine; filled: boolean }) {
+// were resolved to in their place. Each hole is a toggle: selected holes are
+// the ones Fill writes.
+function HoleText({
+	line,
+	filled,
+	selected,
+	dispatch,
+}: {
+	line: HoleLine;
+	filled: boolean;
+	selected: string[];
+	dispatch: (a: Action) => void;
+}) {
 	const parts: ComponentChildren[] = [];
 	let at = 0;
 	for (const h of line.holes) {
+		const on = selected.includes(holeKey(line.line, h.start));
 		parts.push(line.text.slice(at, h.start));
 		parts.push(
-			<span key={h.start} class={filled ? "hole hole-filled" : "hole"}>
+			<button
+				key={h.start}
+				type="button"
+				class={`hole${filled ? " hole-filled" : ""}${on ? " hole-selected" : ""}`}
+				aria-pressed={on}
+				title={`${h.hole} = ${h.value}`}
+				onClick={() => dispatch({ type: "TOGGLE_HOLE", line: line.line, start: h.start })}
+			>
 				{filled ? h.value : line.text.slice(h.start, h.end)}
-			</span>,
+			</button>,
 		);
 		at = h.end;
 	}
@@ -650,43 +694,50 @@ function HoleText({ line, filled }: { line: HoleLine; filled: boolean }) {
 }
 
 // The draft val lines of the target: each as written and with its holes
-// filled in, with a button to write the filled line.
-function HolesTool({ state }: { state: AppState }) {
+// filled in. Fill writes a line's selected holes, or all of them when none
+// is selected; Fill all writes every hole.
+function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
+	const fill = (holes?: { line: number; start: number }[]) => vscodeApi.postMessage({ type: "fillHoles", holes });
 	return (
 		<>
-			<p class="note tool-subtitle">The types the holes of the draft signature were resolved to.</p>
-			{state.holes.map((l) => (
-				<div key={l.line} class="hole-line">
-					<div class="surface code-text preview-block">
-						<HoleText line={l} filled={false} />
-					</div>
-					<div class="hole-filled-row">
+			<p class="note tool-subtitle">
+				The types the holes of the draft signature were resolved to. Click holes to fill only those.
+			</p>
+			{state.holes.map((l) => {
+				const picked = l.holes
+					.filter((h) => state.selectedHoles.includes(holeKey(l.line, h.start)))
+					.map((h) => ({ line: l.line, start: h.start }));
+				const all = l.holes.map((h) => ({ line: l.line, start: h.start }));
+				return (
+					<div key={l.line} class="hole-line">
 						<div class="surface code-text preview-block">
-							<HoleText line={l} filled={true} />
+							<HoleText line={l} filled={false} selected={state.selectedHoles} dispatch={dispatch} />
 						</div>
-						<button
-							class="btn btn-secondary"
-							type="button"
-							title="Write this line with its holes filled in"
-							onClick={() => vscodeApi.postMessage({ type: "fillHoles", line: l.line })}
-						>
-							Fill
-						</button>
+						<div class="hole-filled-row">
+							<div class="surface code-text preview-block">
+								<HoleText line={l} filled={true} selected={state.selectedHoles} dispatch={dispatch} />
+							</div>
+							<button
+								class="btn btn-secondary"
+								type="button"
+								title={
+									picked.length > 0
+										? "Write the selected holes of this line"
+										: "Write this line with its holes filled in"
+								}
+								onClick={() => fill(picked.length > 0 ? picked : all)}
+							>
+								{picked.length > 0 ? "Fill selected" : "Fill"}
+							</button>
+						</div>
 					</div>
-				</div>
-			))}
-			{state.holes.length > 1 && (
-				<div class="btn-row">
-					<button
-						class="btn btn-primary"
-						type="button"
-						title="Write every line with its holes filled in"
-						onClick={() => vscodeApi.postMessage({ type: "fillHoles" })}
-					>
-						Fill all
-					</button>
-				</div>
-			)}
+				);
+			})}
+			<div class="btn-row">
+				<button class="btn btn-primary" type="button" title="Write every hole of the signature" onClick={() => fill()}>
+					Fill all
+				</button>
+			</div>
 		</>
 	);
 }
@@ -951,7 +1002,7 @@ function App() {
 			<div class="dashboard">
 				{state.holes.length > 0 && (
 					<Section id="holes" title="Draft holes" state={state} dispatch={dispatch}>
-						<HolesTool state={state} />
+						<HolesTool state={state} dispatch={dispatch} />
 					</Section>
 				)}
 				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch}>

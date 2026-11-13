@@ -169,9 +169,9 @@ export type WebviewToExtension =
 	// Run the LLM type inference on the panel's current target.
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
-	// Replace the holes of the target's val lines with their types: those of
-	// [line] only, or all of them.
-	| { type: "fillHoles"; line?: number }
+	// Replace holes of the target's val lines with their types: those given
+	// by line and start character, or all of them.
+	| { type: "fillHoles"; holes?: { line: number; start: number }[] }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
