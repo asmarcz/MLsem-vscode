@@ -1,8 +1,11 @@
 import { type ComponentChildren, render } from "preact";
-import { useEffect, useReducer, useRef } from "preact/hooks";
+import { useEffect, useReducer, useRef, useState } from "preact/hooks";
 import {
 	type Binding,
 	type ExtensionToWebview,
+	type ExtractChoice,
+	type ExtractLine,
+	type ExtractMode,
 	type GeneralizeCheck,
 	type HoleLine,
 	type Instantiation,
@@ -76,17 +79,39 @@ interface AppState {
 	// Fill, by [holeKey].
 	holes: HoleLine[];
 	selectedHoles: string[];
+	extract: ExtractState;
 	// Collapsed sections, by id. Kept across bindings, like VS Code's panes.
 	collapsed: Record<SectionId, boolean>;
 }
 
-type SectionId = "holes" | "merge" | "instantiate" | "llm";
+// The extract tool: the target's val lines with their repeated parts; per
+// line, the parts chosen (by key); the names given, by [extractKey]; and
+// the previews, by line and mode.
+interface ExtractState {
+	lines: ExtractLine[];
+	chosen: Record<number, string[]>;
+	names: Record<string, string>;
+	previews: Record<string, { ok: boolean; text?: string; error?: string; linksHoles?: boolean }>;
+	applying: boolean;
+	error: string | null;
+}
+
+const initialExtract: ExtractState = { lines: [], chosen: {}, names: {}, previews: {}, applying: false, error: null };
+
+function extractKey(line: number, key: string) {
+	return `${line}\n${key}`;
+}
+
+type SectionId = "holes" | "extract" | "merge" | "instantiate" | "llm";
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
 	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
 	| { type: "TOGGLE_HOLE"; line: number; start: number }
+	| { type: "TOGGLE_EXTRACT"; line: number; key: string }
+	| { type: "SET_EXTRACT_NAME"; line: number; key: string; name: string }
+	| { type: "EXTRACT_APPLYING" }
 	| { type: "APPLYING"; mode: MergeMode }
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "INST_APPLYING" }
@@ -109,7 +134,8 @@ const initialState: AppState = {
 	overloadsFailure: null,
 	holes: [],
 	selectedHoles: [],
-	collapsed: { holes: false, merge: false, instantiate: false, llm: false },
+	extract: initialExtract,
+	collapsed: { holes: false, extract: false, merge: false, instantiate: false, llm: false },
 };
 
 // Drop assignment entries for overloads that no longer exist; report whether
@@ -154,6 +180,8 @@ function reducer(state: AppState, action: Action): AppState {
 					llmStatus: state.llmStatus,
 					target: state.target,
 					overloadsFailure: action.reason ?? null,
+					// From the parse, sent before the overloads.
+					extract: state.extract,
 					collapsed: state.collapsed,
 				};
 			}
@@ -185,6 +213,13 @@ function reducer(state: AppState, action: Action): AppState {
 		}
 		case "TOGGLE_SECTION":
 			return { ...state, collapsed: { ...state.collapsed, [action.id]: !state.collapsed[action.id] } };
+		case "setAllCollapsed": {
+			const ids: SectionId[] = ["holes", "extract", "merge", "instantiate", "llm"];
+			return {
+				...state,
+				collapsed: Object.fromEntries(ids.map((id) => [id, action.collapsed])) as AppState["collapsed"],
+			};
+		}
 		case "llmSettings":
 			return { ...state, llmSettings: action.settings };
 		case "llmStatus":
@@ -196,6 +231,42 @@ function reducer(state: AppState, action: Action): AppState {
 			const keys = action.lines.flatMap((l) => l.holes.map((h) => holeKey(l.line, h.start)));
 			return { ...state, holes: action.lines, selectedHoles: state.selectedHoles.filter((k) => keys.includes(k)) };
 		}
+		case "extractGroups": {
+			// Keep the choices and names of parts that are still there, by line.
+			const ex = state.extract;
+			const chosen: Record<number, string[]> = {};
+			const names: Record<string, string> = {};
+			action.lines.forEach((l, i) => {
+				const keys = l.groups.map((g) => g.key);
+				chosen[i] = (ex.chosen[i] ?? []).filter((k) => keys.includes(k));
+				for (const g of l.groups) {
+					const k = extractKey(i, g.key);
+					names[k] = ex.names[k] ?? g.name;
+				}
+			});
+			return { ...state, extract: { ...ex, lines: action.lines, chosen, names, previews: {}, error: null } };
+		}
+		case "TOGGLE_EXTRACT": {
+			const ex = state.extract;
+			const cur = ex.chosen[action.line] ?? [];
+			const next = cur.includes(action.key) ? cur.filter((k) => k !== action.key) : [...cur, action.key];
+			return { ...state, extract: { ...ex, chosen: { ...ex.chosen, [action.line]: next }, error: null } };
+		}
+		case "SET_EXTRACT_NAME": {
+			const ex = state.extract;
+			const names = { ...ex.names, [extractKey(action.line, action.key)]: action.name };
+			return { ...state, extract: { ...ex, names } };
+		}
+		case "extractPreview": {
+			const ex = state.extract;
+			const { ok, text, error, linksHoles } = action;
+			const previews = { ...ex.previews, [`${action.line}:${action.mode}`]: { ok, text, error, linksHoles } };
+			return { ...state, extract: { ...ex, previews } };
+		}
+		case "EXTRACT_APPLYING":
+			return { ...state, extract: { ...state.extract, applying: true, error: null } };
+		case "extracted":
+			return { ...state, extract: { ...state.extract, applying: false, error: action.error ?? null } };
 		case "TOGGLE_HOLE": {
 			// A named hole ('_a) is one variable: its occurrences on the line
 			// are picked together.
@@ -740,22 +811,228 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 	);
 }
 
+// The colours of the parts, as of the overload rows of hovers.
+const PART_COLORS = ["#e5534b", "#539bf5", "#c69026", "#57ab5a", "#986ee2", "#cc6b2c"];
+
+function partColor(i: number) {
+	return PART_COLORS[i % PART_COLORS.length];
+}
+
+// The text of a val line, the occurrences of the chosen parts tinted in
+// their colour (the innermost one where they nest), and those of the part
+// under the mouse outlined.
+function ExtractText({ line, chosen, hovered }: { line: ExtractLine; chosen: string[]; hovered: string | null }) {
+	const n = line.text.length;
+	const tint: (number | null)[] = Array(n).fill(null);
+	const width: number[] = Array(n).fill(Number.POSITIVE_INFINITY);
+	const outline: boolean[] = Array(n).fill(false);
+	line.groups.forEach((g, gi) => {
+		for (const [a, b] of g.occurrences) {
+			for (let i = a; i < b; i++) {
+				if (chosen.includes(g.key) && b - a < width[i]) {
+					tint[i] = gi;
+					width[i] = b - a;
+				}
+				if (g.key === hovered) outline[i] = true;
+			}
+		}
+	});
+	const parts: ComponentChildren[] = [];
+	let start = 0;
+	for (let i = 1; i <= n; i++) {
+		if (i < n && tint[i] === tint[start] && outline[i] === outline[start]) continue;
+		const t = tint[start];
+		const style = t === null ? undefined : { background: `color-mix(in srgb, ${partColor(t)} 30%, transparent)` };
+		parts.push(
+			<span key={start} class={outline[start] ? "part-hovered" : undefined} style={style}>
+				{line.text.slice(start, i)}
+			</span>,
+		);
+		start = i;
+	}
+	return <div class="extract-text">{parts}</div>;
+}
+
+// One val line: its text, and under it a row per repeated part, largest
+// first, with an anchor under each occurrence in the part's colour. A row
+// toggles its part; a chosen part can be renamed.
+function ExtractLineView({
+	line,
+	index,
+	state,
+	dispatch,
+}: {
+	line: ExtractLine;
+	index: number;
+	state: AppState;
+	dispatch: (a: Action) => void;
+}) {
+	const ex = state.extract;
+	const chosen = ex.chosen[index] ?? [];
+	const [hovered, setHovered] = useState<string | null>(null);
+	const cols = `${line.text.length}ch`;
+	return (
+		<div class="extract-line">
+			<div class="surface code-text extract-block">
+				<ExtractText line={line} chosen={chosen} hovered={hovered} />
+				{line.groups.map((g, gi) => {
+					const on = chosen.includes(g.key);
+					return (
+						<div key={g.key} class={on ? "anchor-row chosen" : "anchor-row"}>
+							<button
+								type="button"
+								class="anchor-track"
+								style={{ width: cols }}
+								aria-pressed={on}
+								title={`${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
+								onClick={() => dispatch({ type: "TOGGLE_EXTRACT", line: index, key: g.key })}
+								onMouseEnter={() => setHovered(g.key)}
+								onMouseLeave={() => setHovered(null)}
+								onFocus={() => setHovered(g.key)}
+								onBlur={() => setHovered(null)}
+							>
+								{g.occurrences.map(([a, b]) => (
+									<span
+										key={a}
+										class="anchor"
+										style={{ left: `${a}ch`, width: `${b - a}ch`, background: partColor(gi) }}
+									/>
+								))}
+							</button>
+							<input
+								class="anchor-name"
+								type="text"
+								aria-label={`Name for ${g.key}`}
+								disabled={!on}
+								value={ex.names[extractKey(index, g.key)] ?? g.name}
+								onInput={(e) =>
+									dispatch({
+										type: "SET_EXTRACT_NAME",
+										line: index,
+										key: g.key,
+										name: (e.target as HTMLInputElement).value,
+									})
+								}
+							/>
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
+// The chosen parts of a line, as the server takes them.
+function extractChoices(ex: ExtractState, line: number): ExtractChoice[] {
+	return (ex.chosen[line] ?? []).map((key) => ({ key, name: ex.names[extractKey(line, key)] ?? "" }));
+}
+
+// Lines with chosen parts, and the modes worth previewing for each: the
+// parameter mode only differs when a chosen part has holes.
+function extractModes(ex: ExtractState): { line: number; modes: ExtractMode[] }[] {
+	return ex.lines.flatMap((l, i) => {
+		const chosen = ex.chosen[i] ?? [];
+		if (chosen.length === 0) return [];
+		const holes = l.groups.some((g) => chosen.includes(g.key) && g.holes > 0);
+		return [{ line: i, modes: holes ? (["plain", "params"] as ExtractMode[]) : (["plain"] as ExtractMode[]) }];
+	});
+}
+
+const MODE_TITLES: Record<ExtractMode, { title: string; hint: string; button: string }> = {
+	plain: {
+		title: "As names",
+		hint: "Each part becomes a name. Copies of a part with holes share them.",
+		button: "Extract",
+	},
+	params: {
+		title: "With parameters",
+		hint: "A part with holes gets a parameter per hole, so the type keeps its meaning.",
+		button: "Extract",
+	},
+};
+
+function ExtractTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
+	const ex = state.extract;
+	// Previews follow the choices and names, debounced while typing a name.
+	const request = JSON.stringify(extractModes(ex).map(({ line, modes }) => [line, modes, extractChoices(ex, line)]));
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			for (const { line, modes } of extractModes(ex)) {
+				for (const mode of modes) {
+					vscodeApi.postMessage({ type: "requestExtractPreview", line, mode, groups: extractChoices(ex, line) });
+				}
+			}
+		}, 250);
+		return () => clearTimeout(timer);
+	}, [request]);
+	const apply = (line: number, mode: ExtractMode) => {
+		if (ex.applying) return;
+		dispatch({ type: "EXTRACT_APPLYING" });
+		vscodeApi.postMessage({ type: "applyExtract", line, mode, groups: extractChoices(ex, line) });
+	};
+	return (
+		<>
+			<p class="note tool-subtitle">Name repeated parts of the signature with where. Click a row to choose a part.</p>
+			{ex.error && <p class="error-note">{ex.error}</p>}
+			{ex.lines.map((l, i) => {
+				if (l.groups.length === 0) return null;
+				const modes = extractModes(ex).find((m) => m.line === i)?.modes ?? [];
+				return (
+					<div key={l.text} class="extract-group">
+						<ExtractLineView line={l} index={i} state={state} dispatch={dispatch} />
+						{modes.map((mode) => {
+							const p = ex.previews[`${i}:${mode}`];
+							const t = MODE_TITLES[mode];
+							return (
+								<div key={mode} class="merge-result">
+									<div class="result-head">
+										<p class="result-title" title={t.hint}>
+											{modes.length > 1 ? t.title : "Result"}
+										</p>
+										<button
+											class="btn btn-primary"
+											type="button"
+											disabled={ex.applying || !p?.ok}
+											onClick={() => apply(i, mode)}
+										>
+											{ex.applying ? "Extracting…" : t.button}
+										</button>
+									</div>
+									{p && !p.ok && <p class="error-note">{p.error}</p>}
+									<div class="surface code-text preview-block">
+										{p?.ok ? p.text : "Loading preview…"}
+										{p?.linksHoles && <p class="note precision-stronger">The copies of a part share its holes.</p>}
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				);
+			})}
+		</>
+	);
+}
+
 // A collapsible section in the style of VS Code's view panes: a full-width
 // header with a chevron and an uppercase title, and the body below it.
+// A tool with nothing to work on for the target ([unavailable], why) stays
+// listed, collapsed, with the reason in its header.
 function Section({
 	id,
 	title,
 	state,
 	dispatch,
+	unavailable,
 	children,
 }: {
 	id: SectionId;
 	title: string;
 	state: AppState;
 	dispatch: (a: Action) => void;
+	unavailable?: string;
 	children: ComponentChildren;
 }) {
-	const expanded = !state.collapsed[id];
+	const expanded = !unavailable && !state.collapsed[id];
 	return (
 		<section class={expanded ? "pane expanded" : "pane"}>
 			<h2 class="pane-header">
@@ -764,12 +1041,14 @@ function Section({
 					class="pane-toggle"
 					aria-expanded={expanded}
 					aria-controls={`pane-${id}`}
+					disabled={unavailable !== undefined}
 					onClick={() => dispatch({ type: "TOGGLE_SECTION", id })}
 				>
 					<svg class="pane-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
 						<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" />
 					</svg>
 					{title}
+					{unavailable && <span class="pane-unavailable">{unavailable}</span>}
 				</button>
 			</h2>
 			{expanded && (
@@ -979,35 +1258,46 @@ function App() {
 		return () => window.removeEventListener("message", handler);
 	}, []);
 
-	const notFound = (
-		<p class="note note-absent">
-			{state.target && state.overloadsFailure ? (
-				<>
-					No overloads for <code>{state.target}</code>: {state.overloadsFailure}
-				</>
-			) : state.target ? (
-				<>
-					<code>{state.target}</code> does not typecheck, so it has no overloads.
-				</>
-			) : (
-				"Put the cursor in a top-level definition."
-			)}
-		</p>
-	);
+	// Why a tool has nothing to work on, if so.
+	const noTarget = state.target ? undefined : "no definition at the cursor";
+	const noOverloads =
+		noTarget ??
+		(state.found ? undefined : state.overloadsFailure ? `failed: ${state.overloadsFailure}` : "does not typecheck");
 	return (
 		<>
 			<style>{css}</style>
 			<div class="dashboard">
-				{state.holes.length > 0 && (
-					<Section id="holes" title="Draft holes" state={state} dispatch={dispatch}>
-						<HolesTool state={state} dispatch={dispatch} />
-					</Section>
-				)}
-				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch}>
-					{state.found ? <MergeTool state={state} dispatch={dispatch} /> : notFound}
+				<Section
+					id="holes"
+					title="Draft holes"
+					state={state}
+					dispatch={dispatch}
+					unavailable={noTarget ?? (state.holes.length > 0 ? undefined : "no holes")}
+				>
+					<HolesTool state={state} dispatch={dispatch} />
 				</Section>
-				<Section id="instantiate" title="Type variable instantiation" state={state} dispatch={dispatch}>
-					{state.found ? <InstantiateTool state={state} dispatch={dispatch} /> : notFound}
+				<Section
+					id="extract"
+					title="Extract repeated parts"
+					state={state}
+					dispatch={dispatch}
+					unavailable={
+						noTarget ?? (state.extract.lines.some((l) => l.groups.length > 0) ? undefined : "no repeated parts")
+					}
+				>
+					<ExtractTool state={state} dispatch={dispatch} />
+				</Section>
+				<Section id="merge" title="Overload merging" state={state} dispatch={dispatch} unavailable={noOverloads}>
+					<MergeTool state={state} dispatch={dispatch} />
+				</Section>
+				<Section
+					id="instantiate"
+					title="Type variable instantiation"
+					state={state}
+					dispatch={dispatch}
+					unavailable={noOverloads}
+				>
+					<InstantiateTool state={state} dispatch={dispatch} />
 				</Section>
 				<Section id="llm" title="LLM inference" state={state} dispatch={dispatch}>
 					<LlmTool state={state} />

@@ -3,7 +3,15 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
 import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
-import type { ExtensionToWebview, HoleLine, Precision, WebviewToExtension } from "./protocol";
+import type {
+	ExtensionToWebview,
+	ExtractChoice,
+	ExtractLine,
+	ExtractMode,
+	HoleLine,
+	Precision,
+	WebviewToExtension,
+} from "./protocol";
 
 // --- LSP server contract (distinct from the webview contract in protocol.ts) ---
 
@@ -46,6 +54,19 @@ interface EditRange {
 interface HolesResult {
 	ok: boolean;
 	holes?: { range: EditRange; hole: string; value: string; lineText: string }[];
+}
+
+interface ExtractGroupsResult {
+	ok: boolean;
+	lines?: ExtractLine[];
+}
+
+interface ExtractApplyResult {
+	ok: boolean;
+	text?: string;
+	linksHoles?: boolean;
+	edit?: { range: EditRange; newText: string };
+	error?: string;
 }
 
 interface EditResult {
@@ -232,6 +253,45 @@ async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<H
 	return [...lines.values()];
 }
 
+// The repeated parts of the val lines of the definition at [position].
+async function fetchExtractGroups(uri: vscode.Uri, position: vscode.Position): Promise<ExtractLine[]> {
+	if (!client) return [];
+	try {
+		const result = await client.sendRequest<ExtractGroupsResult>("mlsem/extractGroups", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+		});
+		return result.lines ?? [];
+	} catch {
+		return [];
+	}
+}
+
+// Val line [line] of the definition at [position] with the chosen parts
+// extracted, and the edit that writes it.
+async function extractApply(
+	uri: vscode.Uri,
+	position: vscode.Position,
+	line: number,
+	mode: ExtractMode,
+	groups: ExtractChoice[],
+): Promise<ExtractApplyResult> {
+	if (!client) return { ok: false, error: "The MLsem server is not running." };
+	try {
+		return await client.sendRequest<ExtractApplyResult>("mlsem/extractApply", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+			line,
+			plumbing: mode === "params",
+			groups,
+		});
+	} catch (e) {
+		return { ok: false, error: String(e) };
+	}
+}
+
 // The holes last posted to the panel, which "fillHoles" replaces.
 let currentHoles: HoleLine[] = [];
 
@@ -246,6 +306,9 @@ async function refreshCurrent(): Promise<void> {
 	const position = currentPosition;
 	const name = await definitionAt(uri, position);
 	panel?.webview.postMessage({ type: "target", name: name ?? null });
+	// From the parse alone, so before the overloads, which wait for the
+	// typecheck.
+	panel?.webview.postMessage({ type: "extractGroups", lines: name ? await fetchExtractGroups(uri, position) : [] });
 	const overloads = await fetchOverloads(uri, position);
 	if (overloads) postOverloads(overloads);
 	// After the overloads: the holes come from the typecheck they waited for.
@@ -262,6 +325,11 @@ async function followCursor(uri: vscode.Uri, position: vscode.Position): Promise
 	currentUri = uri;
 	currentPosition = position;
 	await refreshCurrent();
+}
+
+// Collapse or expand every tool of the panel, if it is open.
+export function setAllToolsCollapsed(collapsed: boolean): void {
+	panel?.webview.postMessage({ type: "setAllCollapsed", collapsed });
 }
 
 export function openTypeToolkit(
@@ -384,6 +452,26 @@ export function openTypeToolkit(
 			}
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
+		} else if (message.type === "requestExtractPreview") {
+			if (!currentUri || !currentPosition) return;
+			const r = await extractApply(currentUri, currentPosition, message.line, message.mode, message.groups);
+			panel?.webview.postMessage({
+				type: "extractPreview",
+				line: message.line,
+				mode: message.mode,
+				ok: r.ok,
+				text: r.text,
+				error: r.error,
+				linksHoles: r.linksHoles,
+			});
+		} else if (message.type === "applyExtract") {
+			const uri = currentUri;
+			if (!uri || !currentPosition) return;
+			const r = await extractApply(uri, currentPosition, message.line, message.mode, message.groups);
+			const error = r.edit
+				? await applyEditResult({ ok: true, uri: uri.toString(), edits: [r.edit] })
+				: (r.error ?? "Could not extract.");
+			panel?.webview.postMessage({ type: "extracted", error });
 		} else if (message.type === "setTimeoutCountsAsFail") {
 			await config.setLlmTimeoutCountsAsFail(message.value);
 		} else if (message.type === "selectModel") {

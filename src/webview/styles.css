@@ -72,6 +72,22 @@ body {
 	cursor: pointer;
 }
 
+/* A tool with nothing to work on: collapsed for good, its reason after the
+   title in normal case. */
+.pane-toggle:disabled {
+	cursor: default;
+}
+
+.pane-unavailable {
+	margin-left: 8px;
+	overflow: hidden;
+	font-weight: 400;
+	text-transform: none;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	opacity: var(--tk-dim);
+}
+
 .pane-toggle:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
@@ -90,6 +106,10 @@ body {
 	.pane-chevron {
 		transition: none;
 	}
+}
+
+.pane-toggle:disabled .pane-chevron {
+	opacity: var(--tk-dim);
 }
 
 .pane-body {
@@ -609,6 +629,89 @@ body {
 .hole-selected:hover {
 	border-color: var(--vscode-focusBorder);
 	background: color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+}
+
+/* --- Extract repeated parts ---
+   The line's text, then one row per part: a track as wide as the text, in
+   ch, so that each anchor sits under its occurrence, and the part's name.
+   The block scrolls sideways rather than wrapping, which would break the
+   alignment. */
+.extract-group + .extract-group {
+	margin-top: 20px;
+}
+
+.extract-line {
+	margin-bottom: 8px;
+}
+
+.extract-block {
+	overflow-x: auto;
+	white-space: pre;
+}
+
+.extract-text {
+	margin-bottom: 4px;
+}
+
+.part-hovered {
+	outline: 1px solid var(--tk-border-strong);
+}
+
+.anchor-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 20px;
+	opacity: 0.45;
+}
+
+.anchor-row.chosen,
+.anchor-row:hover {
+	opacity: 1;
+}
+
+.anchor-track {
+	position: relative;
+	flex: none;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+}
+
+.anchor-track:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.anchor {
+	position: absolute;
+	top: 8px;
+	height: 4px;
+	border-radius: 2px;
+}
+
+.anchor-row.chosen .anchor {
+	top: 7px;
+	height: 6px;
+}
+
+.anchor-name {
+	width: 8ch;
+	height: 18px;
+	padding: 0 3px;
+	border: 1px solid var(--tk-border-soft);
+	border-radius: var(--tk-radius);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font: inherit;
+	font-size: 0.9em;
+}
+
+.anchor-name:disabled {
+	visibility: hidden;
 }
 
 .preview-lines {

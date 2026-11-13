@@ -127,6 +127,31 @@ export interface HoleLine {
 	holes: Hole[];
 }
 
+// A part that repeats in a val type: its key (the part, printed), a
+// suggested name, how many holes it has, and where each occurrence is in
+// the line's text, as [start, end) characters.
+export interface ExtractGroup {
+	key: string;
+	name: string;
+	holes: number;
+	occurrences: [number, number][];
+}
+
+// A val line of the target, printed, with its repeated parts.
+export interface ExtractLine {
+	text: string;
+	groups: ExtractGroup[];
+}
+
+// How a part with holes is extracted: as a plain name, whose copies then
+// share the holes, or with a parameter per hole, keeping the meaning.
+export type ExtractMode = "plain" | "params";
+
+export interface ExtractChoice {
+	key: string;
+	name: string;
+}
+
 export type ExtensionToWebview =
 	| {
 			type: "overloads";
@@ -162,7 +187,23 @@ export type ExtensionToWebview =
 	| { type: "target"; name: string | null }
 	// The val lines of the target with resolved holes. Sent after its
 	// "overloads".
-	| { type: "holes"; lines: HoleLine[] };
+	| { type: "holes"; lines: HoleLine[] }
+	// The val lines of the target with their repeated parts.
+	| { type: "extractGroups"; lines: ExtractLine[] }
+	// The type of [line] with the chosen parts extracted. [linksHoles]: the
+	// plain mode made copies of a part with holes share them.
+	| {
+			type: "extractPreview";
+			line: number;
+			mode: ExtractMode;
+			ok: boolean;
+			text?: string;
+			error?: string;
+			linksHoles?: boolean;
+	  }
+	| { type: "extracted"; error?: string }
+	// From the panel's title bar buttons.
+	| { type: "setAllCollapsed"; collapsed: boolean };
 
 export type WebviewToExtension =
 	| { type: "ready" }
@@ -172,6 +213,10 @@ export type WebviewToExtension =
 	// Replace holes of the target's val lines with their types: those given
 	// by line and start character, or all of them.
 	| { type: "fillHoles"; holes?: { line: number; start: number }[] }
+	// Preview, or write, the type of val line [line] of the target with the
+	// chosen parts extracted.
+	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
+	| { type: "applyExtract"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
 	| { type: "selectModel"; model: LlmModel }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
@@ -211,6 +256,10 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	llmSettings: true,
 	target: true,
 	holes: true,
+	extractGroups: true,
+	extractPreview: true,
+	extracted: true,
+	setAllCollapsed: true,
 };
 
 // The extension host is a separate process, so what arrives over postMessage is

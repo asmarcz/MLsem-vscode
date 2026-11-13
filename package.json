@@ -38,6 +38,16 @@
 			{
 				"command": "mlsem.setLlmApiKey",
 				"title": "MLsem: Set LLM API key"
+			},
+			{
+				"command": "mlsem.toolkitCollapseAll",
+				"title": "MLsem: Collapse all tools",
+				"icon": "$(collapse-all)"
+			},
+			{
+				"command": "mlsem.toolkitExpandAll",
+				"title": "MLsem: Expand all tools",
+				"icon": "$(expand-all)"
 			}
 		],
 		"menus": {
@@ -46,6 +56,26 @@
 					"command": "mlsem.inferTypeWithLlm",
 					"when": "editorLangId == mlsem",
 					"group": "navigation"
+				},
+				{
+					"command": "mlsem.toolkitExpandAll",
+					"when": "activeWebviewPanelId == mlsemMergeOverloads",
+					"group": "navigation@1"
+				},
+				{
+					"command": "mlsem.toolkitCollapseAll",
+					"when": "activeWebviewPanelId == mlsemMergeOverloads",
+					"group": "navigation@2"
+				}
+			],
+			"commandPalette": [
+				{
+					"command": "mlsem.toolkitCollapseAll",
+					"when": "activeWebviewPanelId == mlsemMergeOverloads"
+				},
+				{
+					"command": "mlsem.toolkitExpandAll",
+					"when": "activeWebviewPanelId == mlsemMergeOverloads"
 				}
 			]
 		},

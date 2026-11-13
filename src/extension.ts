@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { LanguageClient, type LanguageClientOptions, type ServerOptions } from "vscode-languageclient/node";
 import { Config } from "./config";
 import { inferTypeWithLlm, setApiKey } from "./llm";
-import { openTypeToolkit } from "./mergePanel";
+import { openTypeToolkit, setAllToolsCollapsed } from "./mergePanel";
 import { OverloadColors } from "./overloadColors";
 
 let client: LanguageClient | undefined;
@@ -69,6 +69,9 @@ export async function activate(context: vscode.ExtensionContext) {
 			},
 		),
 		vscode.commands.registerCommand("mlsem.setLlmApiKey", () => setApiKey(context, config)),
+		// The type toolkit's title bar buttons.
+		vscode.commands.registerCommand("mlsem.toolkitCollapseAll", () => setAllToolsCollapsed(true)),
+		vscode.commands.registerCommand("mlsem.toolkitExpandAll", () => setAllToolsCollapsed(false)),
 	);
 
 	const codeActionProvider = vscode.languages.registerCodeActionsProvider(
