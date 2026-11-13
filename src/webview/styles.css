@@ -227,6 +227,19 @@ body {
 	margin: 0;
 }
 
+/* Precision notes keep the size of a note but drop its dimming for a color. */
+/* Stronger claims more than the overloads, so it may be unsafe: a warning.
+   Weaker only loses information: a notice. */
+.precision-stronger {
+	color: var(--vscode-editorWarning-foreground);
+	opacity: 1;
+}
+
+.precision-weaker {
+	color: var(--vscode-editorInfo-foreground, var(--vscode-textLink-foreground));
+	opacity: 1;
+}
+
 .llm-status {
 	margin: 10px 0 0 0;
 }
@@ -525,6 +538,22 @@ body {
 	border-color: var(--vscode-focusBorder);
 }
 
+/* The precision of a generalized type, on its preview: a colored left edge
+   (after .preview-block, which sets the border color) and a caption under
+   the type in the UI font. */
+.precision-edge-stronger {
+	border-left: 3px solid var(--vscode-editorWarning-foreground);
+}
+
+.precision-edge-weaker {
+	border-left: 3px solid var(--vscode-editorInfo-foreground, var(--vscode-textLink-foreground));
+}
+
+.preview-block .note {
+	margin: 6px 0 0 0;
+	font-family: var(--vscode-font-family);
+}
+
 .preview-lines {
 	display: flex;
 	flex-direction: column;
@@ -595,10 +624,6 @@ body {
 
 .stale-note {
 	margin-bottom: 4px;
-}
-
-.warning-note {
-	color: var(--vscode-editorWarning-foreground);
 }
 
 .error-note {

@@ -308,13 +308,11 @@ function ActionRow({ titles, onApply, onReplace, onInsert, disabled, busy, class
 function PrecisionNote({ precision }: { precision: Precision }) {
 	switch (precision) {
 		case "stronger":
-			return <p class="note">Stronger than the overloads: it claims more than they do.</p>;
+			return <p class="note precision-stronger">Stronger than the overloads</p>;
 		case "equivalent":
-			return <p class="note">Equivalent to the overloads, written as one type.</p>;
+			return <p class="note">Equivalent to the overloads</p>;
 		case "weaker":
-			return (
-				<p class="warning-note">Weaker than the overloads: they no longer follow from it, so information is lost.</p>
-			);
+			return <p class="note precision-weaker">Weaker than the overloads</p>;
 	}
 }
 
@@ -381,9 +379,14 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 		);
 	}
 
-	function preview(tool: ToolState<string>, loading: string) {
+	// [precision]: generalize only, shown on the preview itself as a colored
+	// edge and a caption, so it reads as a property of that type.
+	function preview(tool: ToolState<string>, loading: string, precision?: Precision) {
 		return tool.preview ? (
-			<div class="surface code-text preview-block">{tool.preview}</div>
+			<div class={`surface code-text preview-block${precision ? ` precision-edge-${precision}` : ""}`}>
+				{tool.preview}
+				{precision && <PrecisionNote precision={precision} />}
+			</div>
 		) : (
 			<div class="surface code-text preview-block preview-placeholder">
 				{state.selected.length === 0 ? "Select overloads to see a preview." : loading}
@@ -442,22 +445,15 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 							{actions("generalize", generalize, g !== null && !g.check.ok)}
 						</div>
 						{generalize.error && <p class="error-note">{generalize.error}</p>}
-						{preview(generalize, "Generalizing and checking…")}
-						{g && (
+						{preview(generalize, "Generalizing and checking…", g?.precision ?? undefined)}
+						{g && !g.check.ok && (
 							<div class="generalize-status">
-								{g.precision && <PrecisionNote precision={g.precision} />}
-								{g.check.ok ? (
-									<p class="note">Checks against the definition.</p>
-								) : (
-									<>
-										<p class="error-note">Does not check against the definition, so it cannot be written.</p>
-										{g.check.errors.map((e) => (
-											<p key={e} class="surface code-text preview-lines">
-												{e}
-											</p>
-										))}
-									</>
-								)}
+								<p class="error-note">Does not check against the definition, so it cannot be written.</p>
+								{g.check.errors.map((e) => (
+									<p key={e} class="surface code-text preview-lines">
+										{e}
+									</p>
+								))}
 							</div>
 						)}
 					</div>
