@@ -134,6 +134,9 @@ export interface ExtractGroup {
 	key: string;
 	name: string;
 	holes: number;
+	// A record only part of some records: extracted as a top-level type,
+	// each record becoming [{ name with ... }].
+	global: boolean;
 	occurrences: [number, number][];
 }
 
@@ -198,6 +201,8 @@ export type ExtensionToWebview =
 			mode: ExtractMode;
 			ok: boolean;
 			text?: string;
+			// The top-level type declarations written above the val.
+			decls?: string[];
 			error?: string;
 			linksHoles?: boolean;
 	  }

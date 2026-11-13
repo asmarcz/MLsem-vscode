@@ -64,8 +64,9 @@ interface ExtractGroupsResult {
 interface ExtractApplyResult {
 	ok: boolean;
 	text?: string;
+	decls?: string[];
 	linksHoles?: boolean;
-	edit?: { range: EditRange; newText: string };
+	edits?: { range: EditRange; newText: string }[];
 	error?: string;
 }
 
@@ -461,6 +462,7 @@ export function openTypeToolkit(
 				mode: message.mode,
 				ok: r.ok,
 				text: r.text,
+				decls: r.decls,
 				error: r.error,
 				linksHoles: r.linksHoles,
 			});
@@ -468,8 +470,8 @@ export function openTypeToolkit(
 			const uri = currentUri;
 			if (!uri || !currentPosition) return;
 			const r = await extractApply(uri, currentPosition, message.line, message.mode, message.groups);
-			const error = r.edit
-				? await applyEditResult({ ok: true, uri: uri.toString(), edits: [r.edit] })
+			const error = r.edits
+				? await applyEditResult({ ok: true, uri: uri.toString(), edits: r.edits })
 				: (r.error ?? "Could not extract.");
 			panel?.webview.postMessage({ type: "extracted", error });
 		} else if (message.type === "setTimeoutCountsAsFail") {

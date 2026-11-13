@@ -91,7 +91,7 @@ interface ExtractState {
 	lines: ExtractLine[];
 	chosen: Record<number, string[]>;
 	names: Record<string, string>;
-	previews: Record<string, { ok: boolean; text?: string; error?: string; linksHoles?: boolean }>;
+	previews: Record<string, { ok: boolean; text?: string; decls?: string[]; error?: string; linksHoles?: boolean }>;
 	applying: boolean;
 	error: string | null;
 }
@@ -259,8 +259,8 @@ function reducer(state: AppState, action: Action): AppState {
 		}
 		case "extractPreview": {
 			const ex = state.extract;
-			const { ok, text, error, linksHoles } = action;
-			const previews = { ...ex.previews, [`${action.line}:${action.mode}`]: { ok, text, error, linksHoles } };
+			const { ok, text, decls, error, linksHoles } = action;
+			const previews = { ...ex.previews, [`${action.line}:${action.mode}`]: { ok, text, decls, error, linksHoles } };
 			return { ...state, extract: { ...ex, previews } };
 		}
 		case "EXTRACT_APPLYING":
@@ -890,7 +890,7 @@ function ExtractLineView({
 									class="anchor-track"
 									style={{ width: cols }}
 									aria-pressed={on}
-									title={`${on ? "Click to leave out" : "Click to extract"}: ${g.key}${g.holes > 0 ? " (has holes)" : ""}`}
+									title={`${on ? "Click to leave out" : "Click to extract"}: ${g.key}${g.holes > 0 ? " (has holes)" : ""}${g.global ? " (as a top-level type)" : ""}`}
 									onClick={toggle}
 									onMouseEnter={() => setHovered(g.key)}
 									onMouseLeave={() => setHovered(null)}
@@ -1013,6 +1013,12 @@ function ExtractTool({ state, dispatch }: { state: AppState; dispatch: (a: Actio
 									</div>
 									{p && !p.ok && <p class="error-note">{p.error}</p>}
 									<div class="surface code-text preview-block">
+										{p?.ok &&
+											p.decls?.map((d) => (
+												<div key={d} class="extract-decl">
+													{d}
+												</div>
+											))}
 										{p?.ok ? p.text : "Loading preview…"}
 										{p?.linksHoles && <p class="note precision-stronger">The copies of a part share its holes.</p>}
 									</div>

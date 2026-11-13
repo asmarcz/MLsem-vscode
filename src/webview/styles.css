@@ -653,6 +653,12 @@ body {
 	margin-bottom: 4px;
 }
 
+/* A top-level type the extraction writes above the val. */
+.extract-decl {
+	margin-bottom: 4px;
+	opacity: 0.8;
+}
+
 .part-hovered {
 	outline: 1px solid var(--tk-border-strong);
 }
