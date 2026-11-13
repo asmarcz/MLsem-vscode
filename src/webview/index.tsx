@@ -935,63 +935,167 @@ function HoleText({
 	return <>{parts}</>;
 }
 
-// The draft val lines of the target: each as written, then filled in, once,
-// or once per overload of its result when they disagree on its holes. Fill
-// writes a row's selected holes, and is disabled until one is selected; Fill
-// all writes every hole of the lines with a single row.
-// The val line with [text] in place of the widen part, that text marked.
-function WidenLine({ part, text }: { part: WidenPart; text: string }) {
+// An inline dropdown: the chosen option, a button that opens the list of
+// [options] below it. The keyboard works as in a listbox: arrows move,
+// Enter or Space picks, Escape closes; a click outside closes too. Options
+// are types, shown highlighted.
+function TypeSelect({
+	options,
+	value,
+	onChange,
+	label,
+}: {
+	options: string[];
+	value: number;
+	onChange: (i: number) => void;
+	label: string;
+}) {
+	const [open, setOpen] = useState(false);
+	const [active, setActive] = useState(value);
+	const root = useRef<HTMLSpanElement>(null);
+	const button = useRef<HTMLButtonElement>(null);
+	const list = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (!open) return;
+		list.current?.focus();
+		const outside = (e: MouseEvent) => {
+			if (!root.current?.contains(e.target as Node)) setOpen(false);
+		};
+		document.addEventListener("mousedown", outside);
+		return () => document.removeEventListener("mousedown", outside);
+	}, [open]);
+
+	function show() {
+		setActive(value);
+		setOpen(true);
+	}
+
+	function pick(i: number) {
+		onChange(i);
+		setOpen(false);
+		button.current?.focus();
+	}
+
+	function onListKey(e: KeyboardEvent) {
+		const last = options.length - 1;
+		if (e.key === "ArrowDown") setActive((a) => Math.min(a + 1, last));
+		else if (e.key === "ArrowUp") setActive((a) => Math.max(a - 1, 0));
+		else if (e.key === "Home") setActive(0);
+		else if (e.key === "End") setActive(last);
+		else if (e.key === "Enter" || e.key === " ") pick(active);
+		else if (e.key === "Escape" || e.key === "Tab") {
+			setOpen(false);
+			if (e.key === "Escape") button.current?.focus();
+			return;
+		} else return;
+		e.preventDefault();
+	}
+
 	return (
-		<>
-			<Code text={part.lineText.slice(0, part.start)} />
-			<span class="widen-mark">
-				<Code text={text} />
-			</span>
-			<Code text={part.lineText.slice(part.end)} />
-		</>
+		<span class="type-select" ref={root}>
+			<button
+				ref={button}
+				type="button"
+				class={`type-select-button${value === 0 ? "" : " changed"}`}
+				aria-haspopup="listbox"
+				aria-expanded={open}
+				aria-label={label}
+				onClick={() => (open ? setOpen(false) : show())}
+				onKeyDown={(e) => {
+					if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+						e.preventDefault();
+						show();
+					}
+				}}
+			>
+				<Code text={options[value] ?? ""} />
+				<svg class="type-select-chevron" viewBox="0 0 16 16" aria-hidden="true">
+					<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" />
+				</svg>
+			</button>
+			{open && (
+				<div
+					ref={list}
+					class="type-select-menu"
+					role="listbox"
+					tabIndex={-1}
+					aria-label={label}
+					aria-activedescendant={`type-option-${active}`}
+					onKeyDown={onListKey}
+				>
+					{options.map((o, i) => (
+						// The list has the focus and points at the active option,
+						// so options are not tab stops.
+						<div
+							key={o}
+							id={`type-option-${i}`}
+							role="option"
+							tabIndex={-1}
+							aria-selected={i === value}
+							class={`type-select-option${i === active ? " active" : ""}${i === value ? " selected" : ""}`}
+							onMouseEnter={() => setActive(i)}
+							onMouseDown={(e) => {
+								// Keep the focus in the list until the pick moves it.
+								e.preventDefault();
+								pick(i);
+							}}
+						>
+							<Code text={o} />
+						</div>
+					))}
+				</div>
+			)}
+		</span>
 	);
 }
 
-// The smallest part of a val type containing the editor's selection (or
-// cursor), then the line with each wider type in its place, tightest first.
+// The val line of the part at the editor's selection or cursor, the part
+// being a dropdown of itself and its wider types, tightest first. Apply
+// writes the one chosen.
 function WidenTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const { part, applying, error } = state.widen;
 	const claimApply = useApplyGuard(applying);
+	const [choice, setChoice] = useState(0);
+	// A new part starts from itself.
+	const partKey = part ? `${part.line}:${part.start}:${part.part}` : "";
+	useEffect(() => setChoice(0), [partKey]);
 	if (!part) return null;
-	const apply = (text: string) => {
-		if (!claimApply()) return;
+	const options = [part.part, ...part.candidates];
+	const chosen = choice === 0 ? null : options[choice];
+	const apply = () => {
+		if (!chosen || !claimApply()) return;
 		dispatch({ type: "WIDEN_APPLYING" });
-		vscodeApi.postMessage({ type: "applyWiden", text });
+		vscodeApi.postMessage({ type: "applyWiden", text: chosen });
 	};
 	return (
 		<>
-			<p class="note tool-subtitle">Replace the part of a val type at the selection or cursor with a wider type.</p>
+			<p class="note tool-subtitle">Pick a wider type for the part of a val type at the selection or cursor.</p>
 			{error && <p class="error-note">{error}</p>}
-			<div class="hole-line">
+			<div class="hole-filled-row">
 				<div class="surface code-text preview-block">
-					<WidenLine part={part} text={part.part} />
+					<Code text={part.lineText.slice(0, part.start)} />
+					<TypeSelect options={options} value={choice} onChange={setChoice} label={`Wider type for ${part.part}`} />
+					<Code text={part.lineText.slice(part.end)} />
 				</div>
-				{part.candidates.map((c) => (
-					<div key={c} class="hole-filled-row">
-						<div class="surface code-text preview-block">
-							<WidenLine part={part} text={c} />
-						</div>
-						<button
-							class="btn btn-secondary"
-							type="button"
-							title={`Write ${c} in place of ${part.part}`}
-							disabled={applying}
-							onClick={() => apply(c)}
-						>
-							Apply
-						</button>
-					</div>
-				))}
+				<button
+					class="btn btn-primary"
+					type="button"
+					title={chosen ? `Write ${chosen} in place of ${part.part}` : "Pick a wider type first"}
+					disabled={!chosen || applying}
+					onClick={apply}
+				>
+					Apply
+				</button>
 			</div>
 		</>
 	);
 }
 
+// The draft val lines of the target: each as written, then filled in, once,
+// or once per overload of its result when they disagree on its holes. Fill
+// writes a row's selected holes, and is disabled until one is selected; Fill
+// all writes every hole of the lines with a single row.
 function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const fill = (holes?: { line: number; row: number; start: number }[]) =>
 		vscodeApi.postMessage({ type: "fillHoles", holes });
