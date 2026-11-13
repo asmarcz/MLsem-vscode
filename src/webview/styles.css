@@ -662,7 +662,7 @@ body {
 	align-items: center;
 	gap: 8px;
 	height: 20px;
-	opacity: 0.45;
+	opacity: 0.7;
 }
 
 .anchor-row.chosen,
@@ -700,6 +700,7 @@ body {
 .anchor {
 	position: absolute;
 	top: 4px;
+	color: var(--tk-border-strong);
 	height: 9px;
 	border-bottom: var(--anchor-line) solid currentColor;
 	pointer-events: none;

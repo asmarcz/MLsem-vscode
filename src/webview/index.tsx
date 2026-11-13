@@ -902,22 +902,16 @@ function ExtractLineView({
 											key={a}
 											class="anchor"
 											// Inset by a few pixels, so that the slanted ends of
-											// neighbouring occurrences do not touch.
+											// neighbouring occurrences do not touch. Coloured only
+											// when the part is chosen.
 											style={{
 												left: `calc(${a}ch + 3px)`,
 												width: `calc(${b - a}ch - 6px)`,
-												color: partColor(gi),
+												color: on ? partColor(gi) : undefined,
 											}}
 										/>
 									))}
 								</button>
-								<input
-									type="checkbox"
-									class="anchor-check"
-									aria-label={`Extract ${g.key}`}
-									checked={on}
-									onChange={toggle}
-								/>
 								<input
 									class="anchor-name"
 									type="text"
@@ -932,6 +926,13 @@ function ExtractLineView({
 											name: (e.target as HTMLInputElement).value,
 										})
 									}
+								/>
+								<input
+									type="checkbox"
+									class="anchor-check"
+									aria-label={`Extract ${g.key}`}
+									checked={on}
+									onChange={toggle}
 								/>
 							</div>
 						);
