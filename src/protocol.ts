@@ -27,9 +27,11 @@ export type Precision = "equivalent" | "stronger" | "weaker";
 export interface Binding {
 	name: string;
 	declared: boolean;
-	// False when the definition does not typecheck: its overloads are then
-	// those of its val lines.
-	checked?: boolean;
+	// Whether the definition typechecks; null without one, undefined until
+	// known. A declared binding's overloads are those of its val lines.
+	checked?: boolean | null;
+	// False for val lines without a definition.
+	body?: boolean;
 }
 
 export interface Overload {
@@ -238,6 +240,10 @@ export type ExtensionToWebview =
 			// document's typecheck timed out).
 			reason?: string;
 	  }
+	// For the declared binding [name], what needs the typecheck, sent after
+	// its "overloads": whether its definition typechecks, and per overload
+	// the instances its calls use.
+	| { type: "overloadExtras"; name: string; checked: boolean | null; instances: CallInstance[][] }
 	| {
 			type: "preview";
 			// Which of the two previews this is.
@@ -341,6 +347,7 @@ export type WebviewToExtension =
 // it here is a compile error, so the runtime guard cannot fall behind the type.
 const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	overloads: true,
+	overloadExtras: true,
 	preview: true,
 	applied: true,
 	instantiatePreview: true,

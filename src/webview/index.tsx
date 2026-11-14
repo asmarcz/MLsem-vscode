@@ -256,6 +256,15 @@ function reducer(state: AppState, action: Action): AppState {
 				instantiate: { ...state.instantiate, preview: null, stale: dropped, error: null },
 			};
 		}
+		case "overloadExtras": {
+			// Only for the binding they were asked for.
+			if (!state.found || state.binding?.name !== action.name) return state;
+			return {
+				...state,
+				binding: { ...state.binding, checked: action.checked },
+				overloads: state.overloads.map((o, i) => ({ ...o, instances: action.instances[i] ?? [] })),
+			};
+		}
 		case "TOGGLE_SECTION":
 			return { ...state, collapsed: { ...state.collapsed, [action.id]: !state.collapsed[action.id] } };
 		case "tokenColors":
@@ -599,8 +608,12 @@ function MergeTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 			<p class="note tool-subtitle">
 				Combine the selected overloads into a single declared type, or make their domains disjoint.
 			</p>
-			{state.binding?.checked === false && (
-				<p class="note stale-note">The definition does not typecheck: these are the overloads of its val lines.</p>
+			{state.binding?.body === false ? (
+				<p class="note stale-note">No definition: these are the overloads of its val lines.</p>
+			) : (
+				state.binding?.checked === false && (
+					<p class="note stale-note">The definition does not typecheck: these are the overloads of its val lines.</p>
+				)
 			)}
 			{merge.stale && <p class="note stale-note">Types changed — selection updated.</p>}
 			<div class="layout">

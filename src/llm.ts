@@ -26,7 +26,11 @@ interface Range {
 }
 
 // [line] is the definition's first line, 0-based.
-type DefinitionAt = { ok: true; name: string; definition: string; line: number } | { ok: false; error: string };
+// [body]: false for val lines without a definition, which have nothing to
+// infer a type from.
+type DefinitionAt =
+	| { ok: true; name: string; body: boolean; definition: string; line: number }
+	| { ok: false; error: string };
 
 // How the definition fares in the file's typecheck.
 type DefinitionStatus =
@@ -261,6 +265,10 @@ export async function inferTypeWithLlm(
 	const def = await client.sendRequest<DefinitionAt>("mlsem/definitionAt", at);
 	if (!def.ok) {
 		vscode.window.showErrorMessage(def.error);
+		return;
+	}
+	if (!def.body) {
+		vscode.window.showErrorMessage(`${def.name} has no definition to infer a type from.`);
 		return;
 	}
 	const name = def.name;

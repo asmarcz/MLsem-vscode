@@ -4,6 +4,7 @@ import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
 import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
 import type {
+	CallInstance,
 	ExtensionToWebview,
 	ExtractChoice,
 	ExtractLine,
@@ -22,7 +23,10 @@ interface OverloadsResult {
 	found: boolean;
 	name: string;
 	declared: boolean;
+	// With the overloads when they come from the typecheck; from the
+	// declarations, they come with mlsem/overloadExtras.
 	checked?: boolean;
+	body?: boolean;
 	overloads: string[];
 	overloadVars: string[][];
 	concreteTypes: string[];
@@ -180,6 +184,37 @@ async function fetchOverloads(
 	}
 }
 
+type RawInstances = NonNullable<OverloadsResult["callInstances"]>;
+
+// Per overload, the instances its calls use, with each call's line.
+function toInstances(raw: RawInstances): CallInstance[][] {
+	return raw.map((insts) =>
+		insts.map(({ assignments, calls }) => ({
+			assignments,
+			calls: calls.map(({ range, text }) => ({ line: range.start.line, text })),
+		})),
+	);
+}
+
+// What the overloads of the declared binding [name] come with that needs the
+// typecheck, typechecking on demand: asked for after the overloads are shown,
+// so that they never wait for it. Undefined when it fails, e.g. times out.
+async function fetchOverloadExtras(
+	uri: vscode.Uri,
+	name: string,
+): Promise<{ checked: boolean | null; callInstances: RawInstances } | undefined> {
+	if (!client) return undefined;
+	try {
+		const r = await client.sendRequest<{ ok: boolean; checked?: boolean | null; callInstances?: RawInstances }>(
+			"mlsem/overloadExtras",
+			{ textDocument: { uri: uri.toString() }, name, text: textOf(uri) },
+		);
+		return r.ok ? { checked: r.checked ?? null, callInstances: r.callInstances ?? [] } : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function postOverloads(result: OverloadsResult | { failed: string }): void {
 	if ("failed" in result) {
 		panel?.webview.postMessage({
@@ -195,17 +230,14 @@ function postOverloads(result: OverloadsResult | { failed: string }): void {
 	panel?.webview.postMessage({
 		type: "overloads",
 		found: result.found,
-		binding: { name: result.name, declared: result.declared, checked: result.checked },
+		binding: { name: result.name, declared: result.declared, checked: result.checked, body: result.body },
 		// The server sends signatures and their free type variables as two
 		// parallel arrays; zip them here so the webview never has to keep an
 		// index alignment in sync with a list it otherwise addresses by text.
 		overloads: result.overloads.map((text, i) => ({
 			text,
 			vars: result.overloadVars[i] ?? [],
-			instances: (result.callInstances?.[i] ?? []).map(({ assignments, calls }) => ({
-				assignments,
-				calls: calls.map(({ range, text }) => ({ line: range.start.line, text })),
-			})),
+			instances: toInstances(result.callInstances ?? [])[i] ?? [],
 		})),
 		concreteTypes: result.concreteTypes,
 	});
@@ -371,26 +403,35 @@ async function fetchParts(
 
 // Re-fetch the panel's target and post it to every tool, whatever it is —
 // used for explicit (re)opens and refreshes, where "nothing here" is useful
-// feedback. The target's name is posted first: the overloads need the
-// document's typecheck, which may take until it times out, and the LLM tool
-// does not wait for them.
+// feedback. What needs only the parse and the declarations comes first; then
+// what needs the document's typecheck, which may take until it times out:
+// the holes, and the extras of a declared binding's overloads.
 async function refreshCurrent(): Promise<void> {
 	if (!panel || !currentUri || !currentPosition) return;
 	const uri = currentUri;
 	const position = currentPosition;
 	const name = await definitionAt(uri, position);
 	panel?.webview.postMessage({ type: "target", name: name ?? null });
-	// From the parse alone, so before the overloads, which wait for the
-	// typecheck.
 	panel?.webview.postMessage({ type: "extractGroups", lines: name ? await fetchExtractGroups(uri, position) : [] });
+	// From the declarations for a declared binding; from the typecheck for an
+	// inferred one or one with a draft line.
 	const overloads = await fetchOverloads(uri, position);
 	if (overloads) postOverloads(overloads);
-	// After the overloads: the holes come from the typecheck they waited for.
-	currentHoles = name ? await fetchHoles(uri, position) : [];
-	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
 	for (const tool of ["widen", "simplify"] as const) {
 		const { lines, reason } = name ? await fetchParts(tool, uri, position) : { lines: [] };
 		panel?.webview.postMessage({ type: "parts", tool, lines, reason });
+	}
+	currentHoles = name ? await fetchHoles(uri, position) : [];
+	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
+	if (overloads && !("failed" in overloads) && overloads.found && overloads.callInstances === undefined) {
+		const extras = await fetchOverloadExtras(uri, overloads.name);
+		if (extras)
+			panel?.webview.postMessage({
+				type: "overloadExtras",
+				name: overloads.name,
+				checked: extras.checked,
+				instances: toInstances(extras.callInstances),
+			});
 	}
 }
 
