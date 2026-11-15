@@ -598,6 +598,25 @@ export function openTypeToolkit(
 			}
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
+		} else if (message.type === "splitHoles") {
+			const uri = currentUri;
+			if (!uri) return;
+			const we = new vscode.WorkspaceEdit();
+			for (const l of currentHoles) {
+				if (l.rows.length < 2) continue;
+				// Each row's line, its holes replaced from the last so that the
+				// earlier positions still hold; a hole the row has no value for
+				// stays as written.
+				const lines = l.rows.map((r) =>
+					l.holes.reduceRight(
+						(text, h, i) => text.slice(0, h.start) + (r.values[i] ?? text.slice(h.start, h.end)) + text.slice(h.end),
+						l.text,
+					),
+				);
+				we.replace(uri, new vscode.Range(l.line, 0, l.line, l.text.length), lines.join("\n"));
+			}
+			await vscode.workspace.applyEdit(we);
+			await refreshCurrent();
 		} else if (message.type === "requestExtractPreview") {
 			if (!currentUri || !currentPosition) return;
 			const r = await extractApply(currentUri, currentPosition, message.line, message.mode, message.groups);

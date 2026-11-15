@@ -306,6 +306,9 @@ export type WebviewToExtension =
 	// by line, row of values and start character, or all those of lines
 	// with a single row.
 	| { type: "fillHoles"; holes?: { line: number; row: number; start: number }[] }
+	// Replace each val line with several rows by one val line per row, its
+	// holes filled from that row.
+	| { type: "splitHoles" }
 	// Preview, or write, the type of val line [line] of the target with the
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }

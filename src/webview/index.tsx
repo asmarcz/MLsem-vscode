@@ -1354,11 +1354,13 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 // The draft val lines of the target: each as written, then filled in, once,
 // or once per overload of its result when they disagree on its holes. Fill
 // writes a row's selected holes, and is disabled until one is selected; Fill
-// all writes every hole of the lines with a single row.
+// all writes every hole of the lines with a single row; Split into overloads
+// writes each line with several rows as one line per row.
 function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const fill = (holes?: { line: number; row: number; start: number }[]) =>
 		vscodeApi.postMessage({ type: "fillHoles", holes });
 	const several = state.holes.some((l) => l.rows.length > 1);
+	const fillable = state.holes.some((l) => l.rows.length === 1 && l.rows[0].values.some((v) => v !== null));
 	return (
 		<>
 			<p class="note tool-subtitle">
@@ -1404,14 +1406,27 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					class="btn btn-primary"
 					type="button"
 					title={
-						several
-							? "Write every hole of the lines with one value per hole; a line with several overloads is filled from its rows"
-							: "Write every hole of the signature"
+						!fillable
+							? "Every line has several rows: fill one row, or split into overloads"
+							: several
+								? "Write every hole of the lines with a single row; a line with several rows is filled from one of them, or split"
+								: "Write every hole of the signature"
 					}
+					disabled={!fillable}
 					onClick={() => fill()}
 				>
 					Fill all
 				</button>
+				{several && (
+					<button
+						class="btn btn-secondary"
+						type="button"
+						title="Write each line with several rows as one val line per row, which keeps every case"
+						onClick={() => vscodeApi.postMessage({ type: "splitHoles" })}
+					>
+						Split into overloads
+					</button>
+				)}
 			</div>
 		</>
 	);
