@@ -1353,14 +1353,13 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 
 // The draft val lines of the target: each as written, then filled in, once,
 // or once per overload of its result when they disagree on its holes. Fill
-// writes a row's selected holes, and is disabled until one is selected; Fill
-// all writes every hole of the lines with a single row; Split into overloads
-// writes each line with several rows as one line per row.
+// writes a row's selected holes, and is disabled until one is selected; a
+// line with several rows has Split, which writes it as one line per row;
+// Fill all fills the lines with one row and splits the others.
 function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const fill = (holes?: { line: number; row: number; start: number }[]) =>
 		vscodeApi.postMessage({ type: "fillHoles", holes });
 	const several = state.holes.some((l) => l.rows.length > 1);
-	const fillable = state.holes.some((l) => l.rows.length === 1 && l.rows[0].values.some((v) => v !== null));
 	return (
 		<>
 			<p class="note tool-subtitle">
@@ -1368,8 +1367,20 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 			</p>
 			{state.holes.map((l) => (
 				<div key={l.line} class="hole-line">
-					<div class="surface code-text preview-block">
-						<HoleText line={l} selected={state.selectedHoles} dispatch={dispatch} />
+					<div class="hole-filled-row">
+						<div class="surface code-text preview-block">
+							<HoleText line={l} selected={state.selectedHoles} dispatch={dispatch} />
+						</div>
+						{l.rows.length > 1 && (
+							<button
+								class="btn btn-secondary"
+								type="button"
+								title="Write this line as one val line per row below, which keeps every case"
+								onClick={() => vscodeApi.postMessage({ type: "splitHoles", line: l.line })}
+							>
+								Split
+							</button>
+						)}
 					</div>
 					{l.rows.map((_, row) => {
 						const picked = l.holes
@@ -1406,27 +1417,14 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					class="btn btn-primary"
 					type="button"
 					title={
-						!fillable
-							? "Every line has several rows: fill one row, or split into overloads"
-							: several
-								? "Write every hole of the lines with a single row; a line with several rows is filled from one of them, or split"
-								: "Write every hole of the signature"
+						several
+							? "Write every hole: a line with one row is filled from it, a line with several is split into one line per row"
+							: "Write every hole of the signature"
 					}
-					disabled={!fillable}
 					onClick={() => fill()}
 				>
 					Fill all
 				</button>
-				{several && (
-					<button
-						class="btn btn-secondary"
-						type="button"
-						title="Write each line with several rows as one val line per row, which keeps every case"
-						onClick={() => vscodeApi.postMessage({ type: "splitHoles" })}
-					>
-						Split into overloads
-					</button>
-				)}
 			</div>
 		</>
 	);

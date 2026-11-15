@@ -638,6 +638,11 @@ body {
 	min-width: 0;
 }
 
+/* Split and Fill one width, so that the lines line up. */
+.hole-filled-row > .btn {
+	min-width: 4.5em;
+}
+
 /* A hole is a toggle inside the code text: a button reset to look like the
    text around it. Selected holes get a solid outline in both lines. */
 .hole {

@@ -303,12 +303,12 @@ export type WebviewToExtension =
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
 	// Replace holes of the target's val lines with their types: those given
-	// by line, row of values and start character, or all those of lines
-	// with a single row.
+	// by line, row of values and start character; or all: a line with one
+	// row filled from it, one with several split as by "splitHoles".
 	| { type: "fillHoles"; holes?: { line: number; row: number; start: number }[] }
-	// Replace each val line with several rows by one val line per row, its
-	// holes filled from that row.
-	| { type: "splitHoles" }
+	// Replace val line [line] by one val line per row, its holes filled from
+	// that row.
+	| { type: "splitHoles"; line: number }
 	// Preview, or write, the type of val line [line] of the target with the
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }

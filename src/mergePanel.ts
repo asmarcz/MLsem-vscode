@@ -375,6 +375,19 @@ async function extractApply(
 // The holes last posted to the panel, which "fillHoles" replaces.
 let currentHoles: HoleLine[] = [];
 
+// Replace val line [l] by one line per row, its holes filled from that row:
+// replaced from the last, so that the earlier positions still hold. A hole
+// the row has no value for stays as written.
+function splitLine(we: vscode.WorkspaceEdit, uri: vscode.Uri, l: HoleLine): void {
+	const lines = l.rows.map((r) =>
+		l.holes.reduceRight(
+			(text, h, i) => text.slice(0, h.start) + (r.values[i] ?? text.slice(h.start, h.end)) + text.slice(h.end),
+			l.text,
+		),
+	);
+	we.replace(uri, new vscode.Range(l.line, 0, l.line, l.text.length), lines.join("\n"));
+}
+
 interface PartsResult {
 	ok: boolean;
 	error?: string;
@@ -581,40 +594,33 @@ export function openTypeToolkit(
 			const uri = currentUri;
 			if (!uri) return;
 			const we = new vscode.WorkspaceEdit();
-			// The row of values to fill line [l] from, for its hole at [start]:
-			// the one asked for, or, filling all, the line's only row.
-			const rowOf = (l: HoleLine, start: number) =>
-				message.holes === undefined
-					? l.rows.length === 1
-						? 0
-						: undefined
-					: message.holes.find((h) => h.line === l.line && h.start === start)?.row;
-			for (const l of currentHoles) {
-				l.holes.forEach((h, i) => {
-					const row = rowOf(l, h.start);
-					const value = row === undefined ? null : l.rows[row]?.values[i];
-					if (value) we.replace(uri, new vscode.Range(l.line, h.start, l.line, h.end), value);
-				});
+			if (message.holes === undefined) {
+				// Filling all: a line with one row is filled from it, one with
+				// several is split.
+				for (const l of currentHoles) {
+					if (l.rows.length > 1) splitLine(we, uri, l);
+					else
+						l.holes.forEach((h, i) => {
+							const value = l.rows[0]?.values[i];
+							if (value) we.replace(uri, new vscode.Range(l.line, h.start, l.line, h.end), value);
+						});
+				}
+			} else {
+				for (const h of message.holes) {
+					const l = currentHoles.find((x) => x.line === h.line);
+					const i = l?.holes.findIndex((x) => x.start === h.start) ?? -1;
+					const value = l && i >= 0 ? l.rows[h.row]?.values[i] : null;
+					if (l && value) we.replace(uri, new vscode.Range(l.line, l.holes[i].start, l.line, l.holes[i].end), value);
+				}
 			}
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
 		} else if (message.type === "splitHoles") {
 			const uri = currentUri;
-			if (!uri) return;
+			const l = currentHoles.find((x) => x.line === message.line);
+			if (!uri || !l) return;
 			const we = new vscode.WorkspaceEdit();
-			for (const l of currentHoles) {
-				if (l.rows.length < 2) continue;
-				// Each row's line, its holes replaced from the last so that the
-				// earlier positions still hold; a hole the row has no value for
-				// stays as written.
-				const lines = l.rows.map((r) =>
-					l.holes.reduceRight(
-						(text, h, i) => text.slice(0, h.start) + (r.values[i] ?? text.slice(h.start, h.end)) + text.slice(h.end),
-						l.text,
-					),
-				);
-				we.replace(uri, new vscode.Range(l.line, 0, l.line, l.text.length), lines.join("\n"));
-			}
+			splitLine(we, uri, l);
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
 		} else if (message.type === "requestExtractPreview") {
