@@ -1,3 +1,5 @@
+What the extension offers: [docs/USAGE.md](docs/USAGE.md).
+
 # Setup
 
 ## Install MLsem LSP
