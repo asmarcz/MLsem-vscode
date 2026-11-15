@@ -1423,7 +1423,7 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					}
 					onClick={() => fill()}
 				>
-					Fill all
+					{several ? "Fill all and split" : "Fill all"}
 				</button>
 			</div>
 		</>
