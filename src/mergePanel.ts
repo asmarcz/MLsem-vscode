@@ -5,7 +5,6 @@ import { Config } from "./config";
 import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
 import type {
 	CallInstance,
-	DefinitionAt,
 	ExtensionToWebview,
 	ExtractChoice,
 	ExtractLine,
@@ -13,107 +12,25 @@ import type {
 	HoleLine,
 	PartLine,
 	PartTool,
-	Precision,
 	WebviewToExtension,
 } from "./protocol";
+import type {
+	CheckSignatureResult,
+	DefinitionAt,
+	EditResult,
+	ExtractApplyResult,
+	ExtractGroupsResult,
+	GeneralizePreviewResult,
+	HolesResult,
+	InstantiatePreviewResult,
+	MergePreviewResult,
+	OverloadExtrasResult,
+	OverloadsResult,
+	PartsResult,
+	RawInstances,
+	SubtractResult,
+} from "./serverProtocol";
 import { tokenColors } from "./themeColors";
-
-// --- LSP server contract (distinct from the webview contract in protocol.ts) ---
-
-interface OverloadsResult {
-	found: boolean;
-	name: string;
-	declared: boolean;
-	// With the overloads when they come from the typecheck; from the
-	// declarations, they come with mlsem/overloadExtras.
-	checked?: boolean;
-	body?: boolean;
-	overloads: string[];
-	overloadVars: string[][];
-	concreteTypes: string[];
-	callInstances?: {
-		assignments: { var: string; type: string }[];
-		calls: { range: { start: { line: number } }; text: string }[];
-	}[][];
-}
-
-interface MergePreviewResult {
-	ok: boolean;
-	text?: string;
-	error?: string;
-}
-
-interface GeneralizePreviewResult {
-	ok: boolean;
-	text?: string;
-	type?: string;
-	precision?: Precision;
-	stale?: boolean;
-	error?: string;
-}
-
-interface CheckSignatureResult {
-	ok: boolean;
-	edit?: { range: EditRange; newText: string };
-	errors?: string[];
-	error?: string;
-}
-
-interface EditRange {
-	start: { line: number; character: number };
-	end: { line: number; character: number };
-}
-
-interface HolesResult {
-	ok: boolean;
-	holes?: {
-		range: EditRange;
-		hole: string;
-		// One value, or one per overload of the line's result.
-		rows: { overload: string | null; value: string | null }[];
-		lineText: string;
-	}[];
-}
-
-interface ExtractGroupsResult {
-	ok: boolean;
-	lines?: ExtractLine[];
-}
-
-interface ExtractApplyResult {
-	ok: boolean;
-	text?: string;
-	decls?: string[];
-	linksHoles?: boolean;
-	edits?: { range: EditRange; newText: string }[];
-	error?: string;
-}
-
-interface EditResult {
-	ok: boolean;
-	uri?: string;
-	edits?: { range: EditRange; newText: string }[];
-	stale?: boolean;
-	error?: string;
-}
-
-interface SubtractResult {
-	ok: boolean;
-	lines?: string[];
-	changed?: number;
-	unreachable?: string[];
-	maxDepth?: number;
-	edits?: { range: EditRange; newText: string }[];
-	stale?: boolean;
-	error?: string;
-}
-
-interface InstantiatePreviewResult {
-	ok: boolean;
-	overloads?: string[];
-	stale?: boolean;
-	error?: string;
-}
 
 // The panel, with [postMessage] narrowed to our protocol. VS Code declares it
 // as postMessage(message: any), and an existing member cannot be narrowed by
@@ -185,8 +102,6 @@ async function fetchOverloads(
 	}
 }
 
-type RawInstances = NonNullable<OverloadsResult["callInstances"]>;
-
 // Per overload, the instances its calls use, with each call's line.
 function toInstances(raw: RawInstances): CallInstance[][] {
 	return raw.map((insts) =>
@@ -206,10 +121,11 @@ async function fetchOverloadExtras(
 ): Promise<{ checked: boolean | null; callInstances: RawInstances } | undefined> {
 	if (!client) return undefined;
 	try {
-		const r = await client.sendRequest<{ ok: boolean; checked?: boolean | null; callInstances?: RawInstances }>(
-			"mlsem/overloadExtras",
-			{ textDocument: { uri: uri.toString() }, name, text: textOf(uri) },
-		);
+		const r = await client.sendRequest<OverloadExtrasResult>("mlsem/overloadExtras", {
+			textDocument: { uri: uri.toString() },
+			name,
+			text: textOf(uri),
+		});
 		return r.ok ? { checked: r.checked ?? null, callInstances: r.callInstances ?? [] } : undefined;
 	} catch {
 		return undefined;
@@ -387,12 +303,6 @@ function splitLine(we: vscode.WorkspaceEdit, uri: vscode.Uri, l: HoleLine): void
 		),
 	);
 	we.replace(uri, new vscode.Range(l.line, 0, l.line, l.text.length), lines.join("\n"));
-}
-
-interface PartsResult {
-	ok: boolean;
-	error?: string;
-	lines?: PartLine[];
 }
 
 // The val lines of the definition at [position] with the parts [tool] has
@@ -696,7 +606,9 @@ export function openTypeToolkit(
 					ok: true,
 					text: g.text,
 					precision: g.precision,
-					check: { ok: check.ok, errors: check.errors ?? (check.error ? [check.error] : []) },
+					check: check.ok
+						? { ok: true, errors: [] }
+						: { ok: false, errors: check.errors ?? (check.error ? [check.error] : []) },
 				});
 				return;
 			}
@@ -768,9 +680,9 @@ export function openTypeToolkit(
 					? [g.type, ...message.overloads.filter((o) => !message.overloadTexts.includes(o))]
 					: [g.type];
 			const check = await checkTypes(uri, position, types);
-			const applyError = check.edit
+			const applyError = check.ok
 				? await applyEditResult({ ok: true, uri: uri.toString(), edits: [check.edit] })
-				: (check.error ?? "Could not write the generalized type.");
+				: (check.error ?? check.errors?.join("\n") ?? "Could not write the generalized type.");
 			panel?.webview.postMessage({ type: "applied", mode: "generalize", error: applyError });
 		} else if (message.type === "apply") {
 			const uri = currentUri;

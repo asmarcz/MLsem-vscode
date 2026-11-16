@@ -18,20 +18,8 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import type { Config } from "./config";
 import { addUsage, anthropicConversation, type Conversation, newUsage, openAiConversation, usageText } from "./llmApi";
-import { type DefinitionAt, type LlmAttempt, type LlmModel, type LlmStatus, sameModel, triesText } from "./protocol";
-
-interface Range {
-	start: { line: number; character: number };
-	end: { line: number; character: number };
-}
-
-// How the definition fares in the file's typecheck.
-type DefinitionStatus =
-	| { ok: true; status: "typed"; declared: boolean; types: string[] }
-	| { ok: true; status: "errors"; errors: string[] }
-	| { ok: true; status: "failed"; message: string }
-	| { ok: true; status: "unknown" }
-	| { ok: false; error: string };
+import { type LlmAttempt, type LlmModel, type LlmStatus, sameModel, triesText } from "./protocol";
+import type { CheckSignatureResult, DefinitionAt, DefinitionStatus, TextEdit } from "./serverProtocol";
 
 // The definition's status, as a paragraph of the prompt.
 function statusText(name: string, s: DefinitionStatus): string {
@@ -53,10 +41,6 @@ function statusText(name: string, s: DefinitionStatus): string {
 			return "";
 	}
 }
-
-type CheckResult =
-	| { ok: true; edit: { range: Range; newText: string } }
-	| { ok: false; errors?: string[]; error?: string };
 
 // TODO: say that a definition taking its arguments one at a time
 // (`let f x y = ...`) has a curried type ('a -> 'b -> 'c), not a tuple one.
@@ -204,7 +188,7 @@ type Outcome =
 	// A check timed out and timeouts do not count as failed tries: the run
 	// stops there instead of asking again.
 	| { kind: "timedOut"; vals: string[] }
-	| { kind: "ok"; types: string[]; edit: { range: Range; newText: string } };
+	| { kind: "ok"; types: string[]; edit: TextEdit };
 
 let running = false;
 
@@ -335,10 +319,10 @@ export async function inferTypeWithLlm(
 						errors = [`The answer has no line of the form \`val ${name} : TYPE\`.`];
 						attempts.push({ vals, result: "no val line", errors });
 					} else {
-						let check: CheckResult;
+						let check: CheckSignatureResult;
 						let timedOut = false;
 						try {
-							check = await client.sendRequest<CheckResult>("mlsem/checkSignature", { ...at, types });
+							check = await client.sendRequest<CheckSignatureResult>("mlsem/checkSignature", { ...at, types });
 						} catch (e) {
 							// The server gives up on a check that takes too long.
 							timedOut = /timed out/i.test(String(e));

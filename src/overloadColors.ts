@@ -1,10 +1,6 @@
 import * as vscode from "vscode";
-import type * as lsp from "vscode-languageclient/node";
 import type { LanguageClient } from "vscode-languageclient/node";
-
-// A part of the file an overload row of the hover stands for, in the colour of
-// that row's swatch.
-type OverloadRange = { range: lsp.Range; color: string };
+import type { OverloadRange } from "./serverProtocol";
 
 // While a hover on an overloaded variable is shown, tints the parts of the
 // file its overload rows stand for, in the colours of the rows' swatches.
