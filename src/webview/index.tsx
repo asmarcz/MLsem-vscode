@@ -80,6 +80,8 @@ interface AppState {
 	llmStatus: LlmStatus;
 	// mlsem.debug.anchors.
 	debugAnchors: boolean;
+	// Writing the inferred type as val lines: in flight, and its error.
+	inline: { applying: boolean; error: string | null };
 	// The definition every tool works on, typeable or not; null when the
 	// panel's target is not in a definition. When it typechecks, [binding] is
 	// its binding.
@@ -129,9 +131,9 @@ interface PartsState {
 
 const initialParts: PartsState = { lines: [], reason: null, applying: false, error: null };
 
-type SectionId = "holes" | "extract" | "widen" | "simplify" | "merge" | "instantiate" | "llm";
+type SectionId = "inferred" | "holes" | "extract" | "widen" | "simplify" | "merge" | "instantiate" | "llm";
 
-const SECTION_IDS: SectionId[] = ["holes", "extract", "widen", "simplify", "merge", "instantiate", "llm"];
+const SECTION_IDS: SectionId[] = ["inferred", "holes", "extract", "widen", "simplify", "merge", "instantiate", "llm"];
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
@@ -147,7 +149,8 @@ type Action =
 	| { type: "SET_ASSIGNMENT"; overload: string; variable: string; value: string }
 	| { type: "SET_ASSIGNMENTS"; overload: string; values: Record<string, string> }
 	| { type: "INST_APPLYING" }
-	| { type: "INST_CLEAR_PREVIEW" };
+	| { type: "INST_CLEAR_PREVIEW" }
+	| { type: "INLINE_APPLYING" };
 
 const initialState: AppState = {
 	found: false,
@@ -164,6 +167,7 @@ const initialState: AppState = {
 	llmSettings: null,
 	llmStatus: { state: "idle" },
 	debugAnchors: false,
+	inline: { applying: false, error: null },
 	target: null,
 	overloadsFailure: null,
 	holes: [],
@@ -172,6 +176,7 @@ const initialState: AppState = {
 	parts: { widen: initialParts, simplify: initialParts },
 	tokenColors: {},
 	collapsed: {
+		inferred: false,
 		holes: false,
 		extract: false,
 		widen: false,
@@ -387,6 +392,10 @@ function reducer(state: AppState, action: Action): AppState {
 			return action.mode === "collapse"
 				? { ...state, merge: { ...state.merge, applying: true } }
 				: { ...state, generalize: { ...state.generalize, applying: true } };
+		case "INLINE_APPLYING":
+			return { ...state, inline: { applying: true, error: null } };
+		case "inlined":
+			return { ...state, inline: { applying: false, error: action.error ?? null } };
 		case "applied":
 			return action.mode === "collapse"
 				? { ...state, merge: withApplied(state.merge, action.error) }
@@ -1884,6 +1893,45 @@ function LlmStatusView({ status }: { status: LlmStatus }) {
 	}
 }
 
+// The inferred type of a definition without val lines, as the val lines
+// that would declare it, and Write, which checks them against the
+// definition and writes them above it.
+function InferredTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
+	const { applying, error } = state.inline;
+	const claimApply = useApplyGuard(applying);
+	const name = state.binding?.name ?? "";
+	const types = state.overloads.map((o) => o.text);
+	const write = () => {
+		if (types.length === 0 || !claimApply()) return;
+		dispatch({ type: "INLINE_APPLYING" });
+		vscodeApi.postMessage({ type: "inlineInferred", types });
+	};
+	return (
+		<>
+			<p class="note tool-subtitle">The type MLsem infers for the definition, as val lines.</p>
+			<div class="surface code-text preview-block">
+				{types.map((t) => (
+					<div key={t}>
+						<Code text={`val ${name} : ${t}`} />
+					</div>
+				))}
+			</div>
+			{error && <p class="error-note">{error}</p>}
+			<div class="btn-row">
+				<button
+					class="btn btn-primary"
+					type="button"
+					title="Write these val lines above the definition"
+					disabled={types.length === 0 || applying}
+					onClick={write}
+				>
+					{applying ? "Writing…" : "Write val lines"}
+				</button>
+			</div>
+		</>
+	);
+}
+
 function LlmTool({ state }: { state: AppState }) {
 	const settings = state.llmSettings;
 	const running = state.llmStatus.state === "running";
@@ -2022,6 +2070,18 @@ function App() {
 		<TokenColors.Provider value={state.tokenColors}>
 			<style>{css}</style>
 			<div class="dashboard">
+				<Section
+					id="inferred"
+					title="Inferred type"
+					state={state}
+					dispatch={dispatch}
+					unavailable={
+						noOverloads ??
+						(state.binding?.declared ? "has val lines" : state.overloads.length === 0 ? "no type" : undefined)
+					}
+				>
+					<InferredTool state={state} dispatch={dispatch} />
+				</Section>
 				<Section
 					id="holes"
 					title="Draft holes"

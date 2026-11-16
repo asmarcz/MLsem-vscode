@@ -506,6 +506,17 @@ export function openTypeToolkit(
 			if (!currentUri || !currentPosition) return;
 			await vscode.commands.executeCommand("mlsem.inferTypeWithLlm", currentUri, currentPosition);
 			await refreshCurrent();
+		} else if (message.type === "inlineInferred") {
+			const uri = currentUri;
+			const position = currentPosition;
+			if (!uri || !position) return;
+			// Checked against the definition, which gives the edit that writes
+			// them, as for the LLM's answers.
+			const check = await checkTypes(uri, position, message.types);
+			const error = check.ok
+				? await applyEditResult({ ok: true, uri: uri.toString(), edits: [check.edit] })
+				: (check.error ?? check.errors?.join("\n") ?? "Could not write the inferred type.");
+			panel?.webview.postMessage({ type: "inlined", error });
 		} else if (message.type === "fillHoles") {
 			const uri = currentUri;
 			if (!uri) return;

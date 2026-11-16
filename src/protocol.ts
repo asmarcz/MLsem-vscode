@@ -257,6 +257,8 @@ export type ExtensionToWebview =
 			check?: GeneralizeCheck;
 	  }
 	| { type: "applied"; mode: MergeMode; error?: string }
+	// The inferred type written as val lines, or why not.
+	| { type: "inlined"; error?: string }
 	| { type: "instantiatePreview"; ok: boolean; overloads?: string[]; error?: string }
 	| { type: "instantiated"; error?: string }
 	| { type: "llmStatus"; status: LlmStatus }
@@ -304,6 +306,8 @@ export type WebviewToExtension =
 	// Run the LLM type inference on the panel's current target.
 	| { type: "inferWithLlm" }
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
+	// Write [types], the target's inferred overloads, as its val lines.
+	| { type: "inlineInferred"; types: string[] }
 	// Replace holes of the target's val lines with their types: those given
 	// by line, row of values and start character; or all: a line with one
 	// row filled from it, one with several split as by "splitHoles".
@@ -355,6 +359,7 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	overloadExtras: true,
 	preview: true,
 	applied: true,
+	inlined: true,
 	instantiatePreview: true,
 	instantiated: true,
 	llmStatus: true,

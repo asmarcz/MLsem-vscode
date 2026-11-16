@@ -39,6 +39,10 @@ let len l = match l with [] -> 0 | _::xs -> 1 + len xs end
 cursor. It follows the cursor. Each tool is a collapsible section; the title
 bar has *Expand all* / *Collapse all*.
 
+**Inferred type.** For a definition without `val` lines: its inferred type
+as `val` lines. *Write val lines* checks them against the definition and
+writes them above it (as the *Inline inferred type* quick action).
+
 **Draft holes.** The draft `val` lines with their holes filled. Click holes
 of a row to select them, then *Fill*. A line whose definition needs several
 overloads gets one row per overload: *Fill* on a row narrows the line to that
