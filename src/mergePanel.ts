@@ -5,6 +5,7 @@ import { Config } from "./config";
 import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
 import type {
 	CallInstance,
+	DefinitionAt,
 	ExtensionToWebview,
 	ExtractChoice,
 	ExtractLine,
@@ -249,7 +250,7 @@ function postOverloads(result: OverloadsResult | { failed: string }): void {
 async function definitionAt(uri: vscode.Uri, position: vscode.Position): Promise<string | undefined> {
 	if (!client) return undefined;
 	try {
-		const result = await client.sendRequest<{ ok: boolean; name?: string }>("mlsem/definitionAt", {
+		const result = await client.sendRequest<DefinitionAt>("mlsem/definitionAt", {
 			textDocument: { uri: uri.toString() },
 			position: { line: position.line, character: position.character },
 			text: textOf(uri),

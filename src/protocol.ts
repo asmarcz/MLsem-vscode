@@ -168,6 +168,13 @@ export interface LlmSettings {
 	timeoutCountsAsFail: boolean;
 }
 
+// mlsem/definitionAt: the top-level definition at a position, from the
+// parse alone. [line] is its first line, 0-based; [body] is false for val
+// lines without a definition.
+export type DefinitionAt =
+	| { ok: true; name: string; body: boolean; definition: string; line: number }
+	| { ok: false; error: string };
+
 // A hole of a draft val line and the type it was resolved to, at
 // characters [start, end) of the line.
 export interface Hole {

@@ -18,19 +18,12 @@ import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import type { Config } from "./config";
 import { addUsage, anthropicConversation, type Conversation, newUsage, openAiConversation, usageText } from "./llmApi";
-import { type LlmAttempt, type LlmModel, type LlmStatus, sameModel, triesText } from "./protocol";
+import { type DefinitionAt, type LlmAttempt, type LlmModel, type LlmStatus, sameModel, triesText } from "./protocol";
 
 interface Range {
 	start: { line: number; character: number };
 	end: { line: number; character: number };
 }
-
-// [line] is the definition's first line, 0-based.
-// [body]: false for val lines without a definition, which have nothing to
-// infer a type from.
-type DefinitionAt =
-	| { ok: true; name: string; body: boolean; definition: string; line: number }
-	| { ok: false; error: string };
 
 // How the definition fares in the file's typecheck.
 type DefinitionStatus =
