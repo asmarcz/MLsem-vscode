@@ -1278,11 +1278,7 @@ function AnchorDebug({ block, spans }: { block: { current: HTMLDivElement | null
 				/>
 			))}
 			{shapes.lines.map((l, i) => (
-				<div
-					key={`l${i}`}
-					class="anchor-debug-line"
-					style={{ left: l.x, borderColor: l.color }}
-				/>
+				<div key={`l${i}`} class="anchor-debug-line" style={{ left: l.x, borderColor: l.color }} />
 			))}
 		</div>
 	);
