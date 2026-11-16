@@ -1099,12 +1099,31 @@ function TypeSelect({
 		button.current?.focus();
 	}
 
+	// With [free], an option with [_] arguments ([tree(_)]) is a template:
+	// picked, it goes into the field, its first [_] selected, for the
+	// arguments to be typed.
+	const isTemplate = (o: string) => free === true && /\(([^()]*[,\s])?_([,\s][^()]*)?\)/.test(o);
+	function choose(o: string) {
+		if (!isTemplate(o)) {
+			pick(o);
+			return;
+		}
+		setTyped(o);
+		requestAnimationFrame(() => {
+			const f = field.current;
+			if (!f) return;
+			f.focus();
+			const i = o.indexOf("_");
+			f.setSelectionRange(i, i + 1);
+		});
+	}
+
 	function onKey(e: KeyboardEvent) {
 		const last = options.length - 1;
 		if (e.key === "ArrowDown") setActive((a) => Math.min(a + 1, last));
 		else if (e.key === "ArrowUp") setActive((a) => Math.max(a - 1, 0));
 		else if (e.key === "Enter" && typed.trim() !== "") pick(typed.trim());
-		else if ((e.key === "Enter" || (e.key === " " && !free)) && options[active] !== undefined) pick(options[active]);
+		else if ((e.key === "Enter" || (e.key === " " && !free)) && options[active] !== undefined) choose(options[active]);
 		else if (e.key === "Escape" || e.key === "Tab") {
 			setOpen(false);
 			if (e.key === "Escape") button.current?.focus();
@@ -1177,7 +1196,7 @@ function TypeSelect({
 							onMouseDown={(e) => {
 								// Keep the focus in the list until the pick moves it.
 								e.preventDefault();
-								pick(o);
+								choose(o);
 							}}
 						>
 							<Code text={o} />
