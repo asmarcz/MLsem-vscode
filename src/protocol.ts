@@ -261,6 +261,8 @@ export type ExtensionToWebview =
 	| { type: "instantiated"; error?: string }
 	| { type: "llmStatus"; status: LlmStatus }
 	| { type: "llmSettings"; settings: LlmSettings }
+	// mlsem.debug.anchors: outline the parts of val lines under their anchors.
+	| { type: "debugAnchors"; on: boolean }
 	// The name of the definition every tool works on, found from the parse so
 	// that it may not typecheck; null when the target is not in a definition.
 	// Sent before the target's "overloads".
@@ -357,6 +359,7 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	instantiated: true,
 	llmStatus: true,
 	llmSettings: true,
+	debugAnchors: true,
 	target: true,
 	holes: true,
 	extractGroups: true,

@@ -92,3 +92,4 @@ Providers are configured in `mlsem.llm.providers` / `mlsem.llm.anthropic`;
 | `mlsem.llm.maxTries` | Answers to ask for before giving up. |
 | `mlsem.llm.timeoutCountsAsFail` | Whether an answer whose check times out counts as a failed try (otherwise inference stops). |
 | `mlsem.trace.server` | Log the LSP traffic. |
+| `mlsem.debug.anchors` | In the toolkit, outline each part's text and draw lines from its anchor's ends, to check they line up. |

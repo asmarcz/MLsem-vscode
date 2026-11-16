@@ -970,6 +970,33 @@ body {
 	transform: skewX(-35deg);
 }
 
+/* mlsem.debug.anchors: boxes around the parts' text and lines from the
+   anchors' ends, measured, over the block. */
+.extract-block.debug-anchors {
+	position: relative;
+}
+
+.anchor-debug {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	pointer-events: none;
+}
+
+.anchor-debug-box {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1px solid;
+}
+
+.anchor-debug-line {
+	position: absolute;
+	top: 0;
+	height: 100%;
+	border-left: 1px dashed;
+}
+
 .anchor-name {
 	width: 8ch;
 	height: 18px;

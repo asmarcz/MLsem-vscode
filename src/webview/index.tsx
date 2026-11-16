@@ -1,5 +1,5 @@
 import { type ComponentChildren, render } from "preact";
-import { useEffect, useReducer, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "preact/hooks";
 import {
 	type Binding,
 	type CallInstance,
@@ -78,6 +78,8 @@ interface AppState {
 	instantiate: ToolState<string[]>;
 	llmSettings: LlmSettings | null;
 	llmStatus: LlmStatus;
+	// mlsem.debug.anchors.
+	debugAnchors: boolean;
 	// The definition every tool works on, typeable or not; null when the
 	// panel's target is not in a definition. When it typechecks, [binding] is
 	// its binding.
@@ -161,6 +163,7 @@ const initialState: AppState = {
 	instantiate: initialToolState,
 	llmSettings: null,
 	llmStatus: { state: "idle" },
+	debugAnchors: false,
 	target: null,
 	overloadsFailure: null,
 	holes: [],
@@ -219,6 +222,7 @@ function reducer(state: AppState, action: Action): AppState {
 					binding: action.binding,
 					llmSettings: state.llmSettings,
 					llmStatus: state.llmStatus,
+					debugAnchors: state.debugAnchors,
 					target: state.target,
 					overloadsFailure: action.reason ?? null,
 					// From the parse, sent before the overloads.
@@ -291,6 +295,8 @@ function reducer(state: AppState, action: Action): AppState {
 		}
 		case "llmSettings":
 			return { ...state, llmSettings: action.settings };
+		case "debugAnchors":
+			return { ...state, debugAnchors: action.on };
 		case "llmStatus":
 			return { ...state, llmStatus: action.status };
 		case "target":
@@ -1196,6 +1202,92 @@ function partHeights(parts: TypePart[]): number[] {
 	return parts.map(height);
 }
 
+// mlsem.debug.anchors: over a val line's [block], each part's text in a box,
+// measured from the text itself, and through the whole block a dashed
+// vertical line at each end of each anchor, as drawn, in the same colour. A
+// part is a span [a, b) of the text of the block's [.extract-text]; an
+// anchor is an element with [data-anchor="a,b"], drawn [data-inset] pixels
+// inside its ends. Where the lines and the box edges differ, the anchor is
+// misaligned.
+type DebugShapes = {
+	boxes: { left: number; top: number; width: number; height: number; color: string }[];
+	lines: { x: number; color: string }[];
+	height: number;
+};
+
+function AnchorDebug({ block, spans }: { block: { current: HTMLDivElement | null }; spans: [number, number][] }) {
+	const [shapes, setShapes] = useState<DebugShapes | null>(null);
+	const key = JSON.stringify(spans);
+	useLayoutEffect(() => {
+		const el = block.current;
+		if (!el) return;
+		const color = (k: string) => partColor(spans.findIndex(([a, b]) => `${a},${b}` === k));
+		const measure = () => {
+			const r = el.getBoundingClientRect();
+			const x0 = r.left + el.clientLeft - el.scrollLeft;
+			const y0 = r.top + el.clientTop - el.scrollTop;
+			// The text node and offset of each character position.
+			const text = el.querySelector(".extract-text");
+			const nodes: Text[] = [];
+			if (text) {
+				const walk = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+				for (let n = walk.nextNode(); n; n = walk.nextNode()) nodes.push(n as Text);
+			}
+			const at = (pos: number): [Text, number] | null => {
+				let rest = pos;
+				for (const n of nodes) {
+					if (rest <= n.length) return [n, rest];
+					rest -= n.length;
+				}
+				return null;
+			};
+			const boxes = spans.flatMap(([a, b]) => {
+				const s = at(a);
+				const e = at(b);
+				if (!s || !e) return [];
+				const range = document.createRange();
+				range.setStart(...s);
+				range.setEnd(...e);
+				const t = range.getBoundingClientRect();
+				return [{ left: t.left - x0, top: t.top - y0, width: t.width, height: t.height, color: color(`${a},${b}`) }];
+			});
+			const lines = Array.from(el.querySelectorAll<HTMLElement>("[data-anchor]")).flatMap((a) => {
+				const ar = a.getBoundingClientRect();
+				const inset = Number(a.dataset.inset ?? 0);
+				const c = color(a.dataset.anchor ?? "");
+				return [
+					{ x: ar.left - inset - x0, color: c },
+					{ x: ar.right + inset - x0, color: c },
+				];
+			});
+			setShapes({ boxes, lines, height: el.scrollHeight });
+		};
+		measure();
+		const ro = new ResizeObserver(measure);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [block, key]);
+	if (!shapes) return null;
+	return (
+		<div class="anchor-debug" style={{ height: `${shapes.height}px` }}>
+			{shapes.boxes.map((b, i) => (
+				<div
+					key={`b${i}`}
+					class="anchor-debug-box"
+					style={{ left: b.left, top: b.top, width: b.width, height: b.height, borderColor: b.color }}
+				/>
+			))}
+			{shapes.lines.map((l, i) => (
+				<div
+					key={`l${i}`}
+					class="anchor-debug-line"
+					style={{ left: l.x, borderColor: l.color }}
+				/>
+			))}
+		</div>
+	);
+}
+
 // A val line: its text, the chosen parts tinted, and under it the anchors
 // of the parts a tool has options for, innermost nearest the text. An
 // anchor opens its part's options ([what] says what they are). Under the
@@ -1205,12 +1297,15 @@ function PartLineView({
 	what,
 	chosen,
 	choose,
+	debug,
 }: {
 	line: PartLine;
 	what: string;
 	chosen: Record<string, string>;
 	choose: (p: TypePart, v: string) => void;
+	debug: boolean;
 }) {
+	const block = useRef<HTMLDivElement>(null);
 	const heights = partHeights(line.parts);
 	const tracks = Math.max(-1, ...heights) + 1;
 	const cols = `${line.text.length}ch`;
@@ -1242,7 +1337,7 @@ function PartLineView({
 	);
 	return (
 		<div class="extract-line">
-			<div class="surface code-text extract-block">
+			<div ref={block} class={`surface code-text extract-block${debug ? " debug-anchors" : ""}`}>
 				<div class="extract-text">{pieces}</div>
 				{Array.from({ length: tracks }, (_, h) => (
 					// Keyed by height: tracks are the levels of nesting.
@@ -1263,6 +1358,8 @@ function PartLineView({
 								>
 									<span
 										class="anchor"
+										data-anchor={`${p.start},${p.end}`}
+										data-inset="3"
 										// Inset by a few pixels, so that the slanted ends of
 										// neighbouring parts do not touch.
 										style={{ left: "3px", right: "3px", color: v !== undefined ? color(i) : undefined }}
@@ -1272,6 +1369,7 @@ function PartLineView({
 						})}
 					</div>
 				))}
+				{debug && <AnchorDebug block={block} spans={line.parts.map((p) => [p.start, p.end])} />}
 			</div>
 			{picked.length > 0 && (
 				<div class="surface code-text preview-block widen-written">
@@ -1334,7 +1432,7 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 			<p class="note tool-subtitle">{subtitle}</p>
 			{error && <p class="error-note">{error}</p>}
 			{lines.map((l) => (
-				<PartLineView key={l.line} line={l} what={what} chosen={chosen} choose={choose(l)} />
+				<PartLineView key={l.line} line={l} what={what} chosen={chosen} choose={choose(l)} debug={state.debugAnchors} />
 			))}
 			<div class="btn-row">
 				<button
@@ -1490,10 +1588,11 @@ function ExtractLineView({
 	const ex = state.extract;
 	const chosen = ex.chosen[index] ?? [];
 	const [hovered, setHovered] = useState<string | null>(null);
+	const block = useRef<HTMLDivElement>(null);
 	const cols = `${line.text.length}ch`;
 	return (
 		<div class="extract-line">
-			<div class="surface code-text extract-block">
+			<div ref={block} class={`surface code-text extract-block${state.debugAnchors ? " debug-anchors" : ""}`}>
 				<ExtractText line={line} chosen={chosen} hovered={hovered} />
 				{/* Smallest part first, so that a part inside another is
 				    underlined closer to the text. */}
@@ -1521,6 +1620,8 @@ function ExtractLineView({
 										<span
 											key={a}
 											class="anchor"
+											data-anchor={`${a},${b}`}
+											data-inset="3"
 											// Inset by a few pixels, so that the slanted ends of
 											// neighbouring occurrences do not touch. Coloured only
 											// when the part is chosen.
@@ -1550,6 +1651,12 @@ function ExtractLineView({
 							</div>
 						);
 					})}
+				{state.debugAnchors && (
+					<AnchorDebug
+						block={block}
+						spans={line.groups.flatMap((g) => g.occurrences.map(([a, b]): [number, number] => [a, b]))}
+					/>
+				)}
 			</div>
 		</div>
 	);

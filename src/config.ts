@@ -35,6 +35,10 @@ export class Config {
 		return this.cfg.get<boolean>("hover.overloadColors") ?? true;
 	}
 
+	get debugAnchors(): boolean {
+		return this.cfg.get<boolean>("debug.anchors") ?? false;
+	}
+
 	// The providers of mlsem.llm.providers in the order given, skipping those
 	// without a base URL, and empty or repeated model names.
 	get llmProviders(): LlmProvider[] {

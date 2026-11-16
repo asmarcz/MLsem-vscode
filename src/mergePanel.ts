@@ -553,6 +553,9 @@ export function openTypeToolkit(
 			},
 		});
 	}
+	function postDebugAnchors() {
+		panel?.webview.postMessage({ type: "debugAnchors", on: config.debugAnchors });
+	}
 	// The theme's colours for MLsem's scopes, for highlighting as in the editor.
 	function postTokenColors() {
 		let colors = {};
@@ -567,6 +570,7 @@ export function openTypeToolkit(
 		onLlmStatus((status) => panel?.webview.postMessage({ type: "llmStatus", status })),
 		vscode.workspace.onDidChangeConfiguration((e) => {
 			if (e.affectsConfiguration("mlsem.llm")) postLlmSettings();
+			if (e.affectsConfiguration("mlsem.debug.anchors")) postDebugAnchors();
 			if (
 				e.affectsConfiguration("workbench") ||
 				e.affectsConfiguration("window.autoDetectColorScheme") ||
@@ -584,6 +588,7 @@ export function openTypeToolkit(
 		if (message.type === "ready") {
 			postTokenColors();
 			postLlmSettings();
+			postDebugAnchors();
 			panel.webview.postMessage({ type: "llmStatus", status: llmStatus() });
 			await refreshCurrent();
 		} else if (message.type === "inferWithLlm") {

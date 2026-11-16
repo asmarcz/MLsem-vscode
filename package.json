@@ -91,6 +91,12 @@
 						"string"
 					]
 				},
+				"mlsem.debug.anchors": {
+					"default": false,
+					"description": "In the type toolkit, outline the text of each part of a val line and draw vertical lines from the ends of its anchor, to check that they line up.",
+					"scope": "window",
+					"type": "boolean"
+				},
 				"mlsem.hover.overloadColors": {
 					"default": true,
 					"description": "In hovers of variables with several overloads, show a colour swatch per overload and tint the matching part of its `val` line in the editor while the hover is shown.",
