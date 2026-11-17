@@ -57,17 +57,19 @@ export interface SubtractPreview {
 	maxDepth: number;
 }
 
-// The tools that rewrite parts of val types: Widen and Simplify.
-export type PartTool = "widen" | "simplify";
+// The tools that rewrite parts of val types: Widen, Narrow and Simplify.
+export type PartTool = "widen" | "narrow" | "simplify";
 
 // A part of a val line's type at columns [start, end) (parentheses around it
 // included), its text, and what the tool can write in its place: wider
-// types, tightest first, or simplified forms with the steps giving them.
+// types, tightest first; narrower types, widest first, labelled "checks",
+// "fails" (with the first [error]) or "unchecked" by checking the
+// definition with each; or simplified forms with the steps giving them.
 export interface TypePart {
 	start: number;
 	end: number;
 	text: string;
-	options: { text: string; label?: string }[];
+	options: { text: string; label?: string; error?: string }[];
 }
 
 // A val line of the target, by number, with the parts a tool has options
@@ -310,6 +312,9 @@ export type ExtensionToWebview =
 	// for; or why there are none.
 	| { type: "parts"; tool: PartTool; lines: PartLine[]; reason?: string }
 	| { type: "partsApplied"; tool: PartTool; error?: string }
+	// The label of the narrower type [text] for the part at [start, end) of
+	// val line [line], checked on demand.
+	| { type: "narrowChecked"; line: number; start: number; end: number; text: string; label: string; error?: string }
 	// The selected overloads after domain subtraction.
 	| { type: "subtractPreview"; ok: boolean; preview?: SubtractPreview; error?: string }
 	| { type: "subtracted"; error?: string }
@@ -340,6 +345,9 @@ export type WebviewToExtension =
 	| { type: "applyExtract"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
 	// Write what was picked for parts in a part tool.
 	| { type: "applyParts"; tool: PartTool; edits: PartEdit[] }
+	// Check the narrower type [text] for the part at [start, end) of val line
+	// [line], picked while unchecked.
+	| { type: "checkNarrow"; line: number; start: number; end: number; text: string }
 	// Preview, or write, the selected overloads after domain subtraction.
 	// [depth]: how many leading arguments make a case.
 	| { type: "requestSubtract"; name: string; overloadTexts: string[]; depth: number }
@@ -391,6 +399,7 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	extracted: true,
 	parts: true,
 	partsApplied: true,
+	narrowChecked: true,
 	subtractPreview: true,
 	subtracted: true,
 	setAllCollapsed: true,

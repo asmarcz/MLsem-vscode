@@ -25,6 +25,7 @@ import type {
 	HolesResult,
 	InstantiatePreviewResult,
 	MergePreviewResult,
+	NarrowCheckResult,
 	OverloadExtrasResult,
 	OverloadsResult,
 	PartsResult,
@@ -338,11 +339,39 @@ async function fetchParts(
 	}
 }
 
+// The narrower type [text] for the part at [start, end) of val line [line]
+// checked against the definition at [position].
+async function checkNarrow(
+	uri: vscode.Uri,
+	position: vscode.Position,
+	line: number,
+	start: number,
+	end: number,
+	text: string,
+): Promise<{ label: string; error?: string }> {
+	if (!client) return { label: "unchecked" };
+	try {
+		const r = await client.sendRequest<NarrowCheckResult>("mlsem/narrowCheck", {
+			textDocument: { uri: uri.toString() },
+			position: { line: position.line, character: position.character },
+			text: textOf(uri),
+			line,
+			start,
+			end,
+			option: text,
+		});
+		return r.ok && r.label ? { label: r.label, error: r.error } : { label: "unchecked", error: r.error };
+	} catch (e) {
+		return { label: "unchecked", error: String(e) };
+	}
+}
+
 // Re-fetch the panel's target and post it to every tool, whatever it is —
 // used for explicit (re)opens and refreshes, where "nothing here" is useful
 // feedback. What needs only the parse and the declarations comes first; then
 // what needs the document's typecheck, which may take until it times out:
-// the holes, and the extras of a declared binding's overloads.
+// the holes, Narrow (which checks each narrower type), and the extras of a
+// declared binding's overloads.
 async function refreshCurrent(): Promise<void> {
 	if (!panel || !currentUri || !currentPosition) return;
 	const uri = currentUri;
@@ -360,6 +389,8 @@ async function refreshCurrent(): Promise<void> {
 	}
 	currentHoles = name ? await fetchHoles(uri, position) : [];
 	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
+	const narrow = name ? await fetchParts("narrow", uri, position) : { lines: [] };
+	panel?.webview.postMessage({ type: "parts", tool: "narrow", ...narrow });
 	if (overloads && !("failed" in overloads) && overloads.found && overloads.callInstances === undefined) {
 		const extras = await fetchOverloadExtras(uri, overloads.name);
 		if (extras)
@@ -604,6 +635,12 @@ export function openTypeToolkit(
 			const ok = await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
 			panel?.webview.postMessage({ type: "partsApplied", tool, error: ok ? undefined : "Could not write the type." });
+		} else if (message.type === "checkNarrow") {
+			const uri = currentUri;
+			if (!uri || !currentPosition) return;
+			const { line, start, end, text } = message;
+			const r = await checkNarrow(uri, currentPosition, line, start, end, text);
+			panel?.webview.postMessage({ type: "narrowChecked", line, start, end, text, ...r });
 		} else if (message.type === "setTimeoutCountsAsFail") {
 			await config.setLlmTimeoutCountsAsFail(message.value);
 		} else if (message.type === "selectModel") {

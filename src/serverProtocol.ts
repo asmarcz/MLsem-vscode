@@ -140,11 +140,19 @@ export interface InstantiatePreviewResult {
 	error?: string;
 }
 
-// mlsem/widen, mlsem/simplify.
+// mlsem/widen, mlsem/narrow, mlsem/simplify.
 export interface PartsResult {
 	ok: boolean;
 	error?: string;
 	lines?: PartLine[];
+}
+
+// mlsem/narrowCheck: one narrower type checked, "checks" or "fails" with the
+// first error; [error] alone when there is nothing to check.
+export interface NarrowCheckResult {
+	ok: boolean;
+	label?: string;
+	error?: string;
 }
 
 // mlsem/hoverOverloads: a part of the file an overload row of the hover

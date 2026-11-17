@@ -135,9 +135,19 @@ interface PartsState {
 
 const initialParts: PartsState = { lines: [], reason: null, applying: false, error: null };
 
-type SectionId = "inferred" | "holes" | "extract" | "widen" | "simplify" | "merge" | "instantiate" | "llm";
+type SectionId = "inferred" | "holes" | "extract" | "widen" | "narrow" | "simplify" | "merge" | "instantiate" | "llm";
 
-const SECTION_IDS: SectionId[] = ["inferred", "holes", "extract", "widen", "simplify", "merge", "instantiate", "llm"];
+const SECTION_IDS: SectionId[] = [
+	"inferred",
+	"holes",
+	"extract",
+	"widen",
+	"narrow",
+	"simplify",
+	"merge",
+	"instantiate",
+	"llm",
+];
 
 type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
@@ -181,13 +191,14 @@ const initialState: AppState = {
 	selectedHoles: [],
 	keptParts: [],
 	extract: initialExtract,
-	parts: { widen: initialParts, simplify: initialParts },
+	parts: { widen: initialParts, narrow: initialParts, simplify: initialParts },
 	tokenColors: {},
 	collapsed: {
 		inferred: false,
 		holes: false,
 		extract: false,
 		widen: false,
+		narrow: false,
 		simplify: false,
 		merge: false,
 		instantiate: false,
@@ -305,6 +316,27 @@ function reducer(state: AppState, action: Action): AppState {
 		case "partsApplied": {
 			const next = { ...state.parts[action.tool], applying: false, error: action.error ?? null };
 			return { ...state, parts: { ...state.parts, [action.tool]: next } };
+		}
+		case "narrowChecked": {
+			// The option's label, if its part is still there.
+			const lines = state.parts.narrow.lines.map((l) =>
+				l.line !== action.line
+					? l
+					: {
+							...l,
+							parts: l.parts.map((p) =>
+								p.start !== action.start || p.end !== action.end
+									? p
+									: {
+											...p,
+											options: p.options.map((o) =>
+												o.text === action.text ? { text: o.text, label: action.label, error: action.error } : o,
+											),
+										},
+							),
+						},
+			);
+			return { ...state, parts: { ...state.parts, narrow: { ...state.parts.narrow, lines } } };
 		}
 		case "llmSettings":
 			return { ...state, llmSettings: action.settings };
@@ -1134,10 +1166,12 @@ let typeSelectCount = 0;
 // a scroll or a resize closes too. The list is placed on the page, not in
 // the button's box, so a scrolling container does not cut it. With [free],
 // the list starts with a field where any type can be typed. [notes] are
-// shown dimmed after the options they are for.
+// shown dimmed after the options they are for; [warnings] mark options that
+// can be picked but are wrong somehow, with what is wrong as their tooltip.
 function TypeSelect({
 	options,
 	notes,
+	warnings,
 	value,
 	onChange,
 	label,
@@ -1150,6 +1184,7 @@ function TypeSelect({
 }: {
 	options: string[];
 	notes?: Record<string, string>;
+	warnings?: Record<string, string>;
 	value: string;
 	onChange: (v: string) => void;
 	label: string;
@@ -1297,6 +1332,7 @@ function TypeSelect({
 							tabIndex={-1}
 							aria-selected={o === value}
 							class={`type-select-option${i === active ? " active" : ""}${o === value ? " selected" : ""}`}
+							title={warnings?.[o]}
 							onMouseEnter={() => setActive(i)}
 							onMouseDown={(e) => {
 								// Keep the focus in the list until the pick moves it.
@@ -1305,7 +1341,9 @@ function TypeSelect({
 							}}
 						>
 							<Code text={o} />
-							{notes?.[o] && <span class="type-select-note">{notes[o]}</span>}
+							{notes?.[o] && (
+								<span class={`type-select-note${warnings?.[o] !== undefined ? " warning" : ""}`}>{notes[o]}</span>
+							)}
 							{isTemplate(o) && (
 								<span
 									class="type-select-edit"
@@ -1493,6 +1531,9 @@ function PartLineView({
 									key={partKey(line.line, p)}
 									options={[p.text, ...p.options.map((o) => o.text)]}
 									notes={Object.fromEntries(p.options.flatMap((o) => (o.label ? [[o.text, o.label]] : [])))}
+									warnings={Object.fromEntries(
+										p.options.flatMap((o) => (o.label === "fails" ? [[o.text, o.error ?? "fails"]] : [])),
+									)}
 									value={v ?? p.text}
 									onChange={(nv) => choose(p, nv)}
 									label={`${what} for ${p.text}`}
@@ -1529,6 +1570,11 @@ const PART_TOOLS: Record<PartTool, { what: string; subtitle: string }> = {
 		what: "Wider type",
 		subtitle: "Click under a part of a val type to pick a wider type for it, innermost parts nearest the text.",
 	},
+	narrow: {
+		what: "Narrower type",
+		subtitle:
+			"Click under a part of a val type to pick a narrower type for it. Each is checked against the definition: one that fails can still be picked.",
+	},
 	simplify: {
 		what: "Simplified form",
 		subtitle:
@@ -1546,7 +1592,11 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 	// Choices are for the lines as they were: new lines start without any.
 	const linesKey = lines.map((l) => `${l.line}:${l.text}`).join("\n");
 	useEffect(() => setChosen({}), [linesKey]);
-	const choose = (line: PartLine) => (p: TypePart, v: string) =>
+	const choose = (line: PartLine) => (p: TypePart, v: string) => {
+		// A narrower type the server had no time to check is checked when
+		// picked.
+		if (tool === "narrow" && p.options.some((o) => o.text === v && o.label === "unchecked"))
+			vscodeApi.postMessage({ type: "checkNarrow", line: line.line, start: p.start, end: p.end, text: v });
 		setChosen((c) => {
 			const next: Record<string, string> = {};
 			for (const q of line.parts) {
@@ -1558,6 +1608,7 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 			if (v !== p.text) next[partKey(line.line, p)] = v;
 			return next;
 		});
+	};
 	const edits = lines.flatMap((l) =>
 		l.parts.flatMap((p) => {
 			const v = chosen[partKey(l.line, p)];
@@ -2362,6 +2413,15 @@ function App() {
 					unavailable={noParts("widen", "nothing to widen")}
 				>
 					<PartsTool tool="widen" state={state} dispatch={dispatch} />
+				</Section>
+				<Section
+					id="narrow"
+					title="Narrow"
+					state={state}
+					dispatch={dispatch}
+					unavailable={noParts("narrow", "nothing to narrow")}
+				>
+					<PartsTool tool="narrow" state={state} dispatch={dispatch} />
 				</Section>
 				<Section
 					id="simplify"

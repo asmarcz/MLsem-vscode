@@ -827,6 +827,13 @@ body {
 	opacity: var(--tk-dim);
 }
 
+/* An option that can be picked but is wrong somehow (a narrower type that
+   fails): its note in the error colour, not dimmed. */
+.type-select-note.warning {
+	opacity: 1;
+	color: var(--vscode-errorForeground);
+}
+
 /* A template's edit button, at the end of its row. */
 .type-select-edit {
 	float: right;
