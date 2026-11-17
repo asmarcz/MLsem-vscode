@@ -102,6 +102,27 @@ each answer; a rejected answer goes back with its type errors, up to
 Providers are configured in `mlsem.llm.providers` / `mlsem.llm.anthropic`;
 `MLsem: Set LLM API key` stores a key. These requests may be billed.
 
+A provider of `mlsem.llm.providers` needs only `baseUrl`. With `models`, those
+are offered; without, the models its server lists (`GET {baseUrl}/models`),
+asked once per session with its key if one is stored. The refresh button
+next to the model list asks again; a provider whose list failed says why
+under it. A local OpenAI-compatible server works without a key:
+
+```json
+"mlsem.llm.providers": {
+  "ollama": { "baseUrl": "http://localhost:11434/v1" },
+  "lmstudio": { "baseUrl": "http://localhost:1234/v1" },
+  "llama.cpp": { "baseUrl": "http://localhost:8080/v1" }
+}
+```
+
+Without a key no `Authorization` header is sent (some local servers reject
+any token they do not know), and you are not asked for one if the server
+listed its models without it. A reasoning model's thinking, between
+`<think>` and `</think>` in the answer or in a separate `reasoning_content`
+field, is logged and left out of the answer. When the server is down, or
+does not have the model loaded, the panel says so.
+
 ## Commands and settings
 
 | Command | |
