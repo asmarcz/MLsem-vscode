@@ -71,7 +71,7 @@ export interface ListedModel {
 }
 
 // The models an OpenAI-compatible server lists (GET {baseUrl}/models, the
-// ids of [data]), in its order. Without a key, no Authorization header is
+// ids of [data]), sorted alphabetically. Without a key, no Authorization header is
 // sent: local servers need none, and some reject any token they do not know.
 export async function listModels(baseUrl: string, apiKey: string | undefined, signal?: AbortSignal) {
 	const url = `${baseUrl.replace(/\/+$/, "")}/models`;
@@ -92,7 +92,7 @@ export async function listModels(baseUrl: string, apiKey: string | undefined, si
 		if (typeof m?.id !== "string" || m.id.trim() === "" || models.some((n) => n.id === m.id)) continue;
 		models.push(typeof m.loaded === "boolean" ? { id: m.id, loaded: m.loaded } : { id: m.id });
 	}
-	return models;
+	return models.sort((a, b) => a.id.localeCompare(b.id, "en", { sensitivity: "base", numeric: true }));
 }
 
 // Why a request did not reach its server: the code of the network error
