@@ -68,6 +68,14 @@ copies keep their own).
 **Widen.** Click under a part of a `val` type to pick a wider type for it
 (`42` → `int`, a hole `_` last). *Apply* writes every pick.
 
+**Narrow.** Same, with narrower types for a part: a declared type inside it
+(`tree('a)`) or some members of a union (`Leaf`, `Node(…)` of a `tree`).
+Each is checked against the definition and marked *checks* or *fails* (hover
+for the error; in a long file, some stay *unchecked* until picked); a failing
+one can still be picked. Narrowing an argument
+accepts fewer inputs, which a recursive call may still need; narrowing a
+result promises more.
+
 **Simplify.** Same, with equivalent simpler forms of a part, each with the
 steps that give it.
 
