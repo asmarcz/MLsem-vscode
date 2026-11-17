@@ -40,8 +40,8 @@ cursor. It follows the cursor. Each tool is a collapsible section; the title
 bar has *Expand all* / *Collapse all*.
 
 **Inferred type.** For a definition without `val` lines: its inferred type
-as `val` lines. *Write val lines* checks them against the definition and
-writes them above it (as the *Inline inferred type* quick action).
+as `val` lines. *Inline inferred type* checks them against the definition and
+writes them above it, like the quick action of the same name.
 
 **Draft holes.** The draft `val` lines with their holes filled. Click holes
 of a row to select them, then *Fill*. A line whose definition needs several

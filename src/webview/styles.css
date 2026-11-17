@@ -608,6 +608,11 @@ body {
 	margin-bottom: 10px;
 }
 
+/* The inferred val lines, spaced from the button under them like a hole line. */
+.inferred-lines {
+	margin-bottom: 10px;
+}
+
 .hole-line > .preview-block {
 	border-color: var(--tk-border);
 }

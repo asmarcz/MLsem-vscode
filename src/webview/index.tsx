@@ -1928,7 +1928,7 @@ function LlmStatusView({ status }: { status: LlmStatus }) {
 }
 
 // The inferred type of a definition without val lines, as the val lines
-// that would declare it, and Write, which checks them against the
+// that would declare it, and Inline, which checks them against the
 // definition and writes them above it.
 function InferredTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
 	const { applying, error } = state.inline;
@@ -1943,7 +1943,7 @@ function InferredTool({ state, dispatch }: { state: AppState; dispatch: (a: Acti
 	return (
 		<>
 			<p class="note tool-subtitle">The type MLsem infers for the definition, as val lines.</p>
-			<div class="surface code-text preview-block">
+			<div class="surface code-text preview-block inferred-lines">
 				{types.map((t) => (
 					<div key={t}>
 						<Code text={`val ${name} : ${t}`} />
@@ -1959,7 +1959,7 @@ function InferredTool({ state, dispatch }: { state: AppState; dispatch: (a: Acti
 					disabled={types.length === 0 || applying}
 					onClick={write}
 				>
-					{applying ? "Writing…" : "Write val lines"}
+					{applying ? "Inlining…" : "Inline inferred type"}
 				</button>
 			</div>
 		</>
