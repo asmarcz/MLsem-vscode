@@ -137,12 +137,20 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 // A model offered in the type toolkit: one of a provider of
 // mlsem.llm.providers through its OpenAI-compatible API, or one of
 // mlsem.llm.anthropic through Anthropic's native API, with its effort.
+// [notLoaded]: listed by its server as not loaded (unsloth studio says so).
 export interface LlmModel {
 	api: "openai" | "anthropic";
 	provider: string;
 	model: string;
 	effort?: Effort;
+	notLoaded?: boolean;
 }
+
+// How listing the models of a provider without a list of models went.
+export type ModelListing =
+	| { provider: string; state: "listing" }
+	| { provider: string; state: "listed"; count: number }
+	| { provider: string; state: "failed"; error: string };
 
 // The same model choice. A choice saved before [api] existed is OpenAI.
 export function sameModel(a: LlmModel, b: LlmModel) {
@@ -156,14 +164,17 @@ export function sameModel(a: LlmModel, b: LlmModel) {
 
 // How a model is shown in the dropdown, within its provider's group.
 export function modelLabel(m: LlmModel) {
-	return m.effort ? `${m.model} (effort ${m.effort})` : m.model;
+	const label = m.effort ? `${m.model} (effort ${m.effort})` : m.model;
+	return m.notLoaded ? `${label} (not loaded)` : label;
 }
 
 export interface LlmSettings {
 	// The models of all providers, in order, and the one chosen with its
 	// provider's base URL (undefined when there are none, or for Anthropic's
-	// native API).
+	// native API). [listings]: the providers whose models are listed by
+	// their server, and how that went.
 	models: LlmModel[];
+	listings: ModelListing[];
 	model?: LlmModel;
 	baseUrl?: string;
 	maxTries: number;
@@ -353,6 +364,8 @@ export type WebviewToExtension =
 	| { type: "requestSubtract"; name: string; overloadTexts: string[]; depth: number }
 	| { type: "applySubtract"; name: string; overloadTexts: string[]; depth: number }
 	| { type: "selectModel"; model: LlmModel }
+	// List again the models of the providers without a list of models.
+	| { type: "refreshModels" }
 	| { type: "openLlmSettings" }
 	| { type: "requestPreview"; name: string; overloadTexts: string[]; mode: MergeMode }
 	// [append]: add the result as new declaration line(s) instead of replacing.

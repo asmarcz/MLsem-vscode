@@ -11,10 +11,12 @@ export interface AnthropicModel {
 	effort?: Effort;
 }
 
+// A provider of mlsem.llm.providers. Without [models], its models are the
+// ones its server lists.
 export interface LlmProvider {
 	name: string;
 	baseUrl: string;
-	models: string[];
+	models?: string[];
 }
 
 // Inspired by:
@@ -40,7 +42,8 @@ export class Config {
 	}
 
 	// The providers of mlsem.llm.providers in the order given, skipping those
-	// without a base URL, and empty or repeated model names.
+	// without a base URL, and empty or repeated model names. A provider
+	// without a list of models has none set: they are discovered.
 	get llmProviders(): LlmProvider[] {
 		const providers = this.cfg.get<unknown>("llm.providers");
 		if (typeof providers !== "object" || providers === null) return [];
@@ -48,9 +51,8 @@ export class Config {
 			if (typeof p !== "object" || p === null) return [];
 			const { baseUrl, models } = p as { baseUrl?: unknown; models?: unknown };
 			if (typeof baseUrl !== "string" || baseUrl.trim() === "") return [];
-			const names = Array.isArray(models)
-				? models.filter((m): m is string => typeof m === "string" && m.trim() !== "")
-				: [];
+			if (!Array.isArray(models)) return [{ name, baseUrl }];
+			const names = models.filter((m): m is string => typeof m === "string" && m.trim() !== "");
 			return [{ name, baseUrl, models: [...new Set(names)] }];
 		});
 	}

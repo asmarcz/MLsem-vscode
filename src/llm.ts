@@ -3,8 +3,9 @@
 // definition checks or the tries run out.
 //
 // Models come from any OpenAI-compatible endpoint (mlsem.llm.providers: base
-// URL and models; only Chat Completions is used, since every compatible
-// server implements it), or from Anthropic's native API (mlsem.llm.anthropic:
+// URL and models, or without models those its server lists; only Chat
+// Completions is used, since every compatible server implements it), or
+// from Anthropic's native API (mlsem.llm.anthropic:
 // models with an effort each). See llmApi.ts. API keys are kept in VS Code's
 // secret storage; the native API also finds ANTHROPIC_API_KEY or an
 // `ant auth login` profile.
@@ -16,9 +17,18 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
-import type { Config } from "./config";
-import { addUsage, anthropicConversation, type Conversation, newUsage, openAiConversation, usageText } from "./llmApi";
-import { type LlmAttempt, type LlmModel, type LlmStatus, sameModel, triesText } from "./protocol";
+import type { Config, LlmProvider } from "./config";
+import {
+	addUsage,
+	anthropicConversation,
+	type Conversation,
+	type ListedModel,
+	listModels,
+	newUsage,
+	openAiConversation,
+	usageText,
+} from "./llmApi";
+import { type LlmAttempt, type LlmModel, type LlmStatus, type ModelListing, sameModel, triesText } from "./protocol";
 import type { CheckSignatureResult, DefinitionAt, DefinitionStatus, TextEdit } from "./serverProtocol";
 
 // The definition's status, as a paragraph of the prompt.
@@ -109,11 +119,88 @@ export async function setApiKey(context: vscode.ExtensionContext, config: Config
 	if (key === undefined) return undefined;
 	if (native && key === "") await context.secrets.delete(ANTHROPIC_KEY);
 	else await context.secrets.store(native ? ANTHROPIC_KEY : apiKeySecret(name), key);
+	// Its models may be listed with the new key.
+	if (!native) void discoverModels(context, config, { force: true, only: name });
 	return key;
 }
 
-async function apiKey(context: vscode.ExtensionContext, config: Config, provider: string) {
-	return (await context.secrets.get(apiKeySecret(provider))) ?? (await setApiKey(context, config, provider));
+// The key of [provider] (empty: none), asked for when none is stored yet,
+// unless its server listed its models without one: then it needs none.
+async function apiKey(context: vscode.ExtensionContext, config: Config, provider: LlmProvider) {
+	const stored = await context.secrets.get(apiKeySecret(provider.name));
+	if (stored !== undefined) return stored;
+	if (listings.get(listingKey(provider))?.state === "listed") return "";
+	return await setApiKey(context, config, provider.name);
+}
+
+// ---- Models listed by providers without a list of models ----
+//
+// A provider of mlsem.llm.providers without [models] offers the models its
+// server lists (GET /models), asked with its stored key if any, never
+// prompting for one. Listed once per session, again on refresh or when a
+// key is set; a failure is shown in the toolkit, not as a notification.
+
+type Listing =
+	| { state: "listing"; done: Promise<void> }
+	| { state: "listed"; models: ListedModel[] }
+	| { state: "failed"; error: string };
+
+// By provider name and base URL, so that a new URL lists again.
+const listings = new Map<string, Listing>();
+const listingKey = (p: LlmProvider) => `${p.name}\n${p.baseUrl}`;
+const listingEmitter = new vscode.EventEmitter<void>();
+// Fired when a listing starts or ends.
+export const onModelsListed = listingEmitter.event;
+
+// List the models of the providers without a list of models: those not
+// listed yet, or with [force] all of them (or only [only]). Resolves when
+// every listing asked for is done.
+export async function discoverModels(
+	context: vscode.ExtensionContext,
+	config: Config,
+	{ force = false, only }: { force?: boolean; only?: string } = {},
+): Promise<void> {
+	const pending = config.llmProviders
+		.filter((p) => p.models === undefined && (only === undefined || p.name === only))
+		.map((p) => {
+			const key = listingKey(p);
+			const current = listings.get(key);
+			if (current?.state === "listing") return current.done;
+			if (current && !force) return undefined;
+			const done = (async () => {
+				let listing: Listing;
+				try {
+					const secret = await context.secrets.get(apiKeySecret(p.name));
+					listing = { state: "listed", models: await listModels(p.baseUrl, secret || undefined) };
+				} catch (e) {
+					listing = { state: "failed", error: e instanceof Error ? e.message : String(e) };
+				}
+				listings.set(key, listing);
+				listingEmitter.fire();
+			})();
+			listings.set(key, { state: "listing", done });
+			listingEmitter.fire();
+			return done;
+		});
+	await Promise.all(pending);
+}
+
+// How the listing of each provider without a list of models went.
+export function modelListings(config: Config): ModelListing[] {
+	return config.llmProviders.flatMap((p): ModelListing[] => {
+		if (p.models !== undefined) return [];
+		const l = listings.get(listingKey(p));
+		if (!l || l.state === "listing") return [{ provider: p.name, state: "listing" }];
+		if (l.state === "failed") return [{ provider: p.name, state: "failed", error: l.error }];
+		return [{ provider: p.name, state: "listed", count: l.models.length }];
+	});
+}
+
+// The models of [p]: its own list, or the one its server gave.
+function providerModels(p: LlmProvider): ListedModel[] {
+	if (p.models !== undefined) return p.models.map((id) => ({ id }));
+	const l = listings.get(listingKey(p));
+	return l?.state === "listed" ? l.models : [];
 }
 
 // A client for the native Anthropic API: with the stored key, or else the
@@ -140,7 +227,14 @@ const SELECTED_MODEL = "mlsem.llm.selectedModel";
 export function allModels(config: Config): LlmModel[] {
 	return [
 		...config.llmProviders.flatMap((p) =>
-			p.models.map((model): LlmModel => ({ api: "openai", provider: p.name, model })),
+			providerModels(p).map(
+				(m): LlmModel => ({
+					api: "openai",
+					provider: p.name,
+					model: m.id,
+					...(m.loaded === false ? { notLoaded: true } : {}),
+				}),
+			),
 		),
 		...config.llmAnthropicModels.map(
 			(m): LlmModel => ({ api: "anthropic", provider: ANTHROPIC_PROVIDER, model: m.model, effort: m.effort }),
@@ -211,10 +305,17 @@ export async function inferTypeWithLlm(
 		vscode.window.showErrorMessage("Put the cursor in a definition of an MLsem file.");
 		return;
 	}
+	// The chosen model may be one a provider lists.
+	await discoverModels(context, config);
 	const chosen = selectedModel(context, config);
 	if (!chosen) {
+		const failed = modelListings(config).flatMap((l) =>
+			l.state === "failed" ? [`${l.provider}: could not list models: ${l.error}`] : [],
+		);
 		const open = await vscode.window.showErrorMessage(
-			"Add models to mlsem.llm.providers or mlsem.llm.anthropic.",
+			failed.length > 0
+				? `No LLM models. ${failed.join("; ")}`
+				: "Add models to mlsem.llm.providers or mlsem.llm.anthropic.",
 			"Open settings",
 		);
 		if (open) vscode.commands.executeCommand("workbench.action.openSettings", "mlsem.llm");
@@ -228,10 +329,11 @@ export async function inferTypeWithLlm(
 		if (!anthropic) return;
 		start = (first) => anthropicConversation(anthropic, model, chosen.effort, SYSTEM_PROMPT, first);
 	} else {
-		if (baseUrl === undefined) return;
-		const key = await apiKey(context, config, chosen.provider);
+		const provider = config.llmProviders.find((p) => p.name === chosen.provider);
+		if (baseUrl === undefined || provider === undefined) return;
+		const key = await apiKey(context, config, provider);
 		if (key === undefined) return;
-		start = (first) => openAiConversation(baseUrl, key, model, SYSTEM_PROMPT, first);
+		start = (first) => openAiConversation(baseUrl, key || undefined, model, SYSTEM_PROMPT, first);
 	}
 	const where = chosen.api === "anthropic" ? ANTHROPIC_PROVIDER : `${chosen.provider} at ${baseUrl}`;
 	const effort = chosen.effort ? ` at effort ${chosen.effort}` : "";
@@ -309,7 +411,8 @@ export async function inferTypeWithLlm(
 					} catch (e) {
 						if (token.isCancellationRequested) return { kind: "cancelled" };
 						const hint = e instanceof Anthropic.AuthenticationError ? ` ${ANTHROPIC_CREDENTIALS}` : "";
-						return { kind: "failed", error: `The LLM request failed: ${e}${hint}` };
+						const message = e instanceof Error ? e.message : String(e);
+						return { kind: "failed", error: `The LLM request failed: ${message}${hint}` };
 					}
 					output.info(`LLM try ${tries}: ${reply.trim()}`);
 

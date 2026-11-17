@@ -143,7 +143,7 @@
 				},
 				"mlsem.llm.providers": {
 					"default": {},
-					"markdownDescription": "OpenAI-compatible endpoints used by `MLsem: Infer type with LLM`. Each provider's API key is set with `MLsem: Set LLM API key`.\n\nExample: `{ \"openai\": { \"baseUrl\": \"https://api.openai.com/v1\", \"models\": [\"gpt-5-mini\"] } }`",
+					"markdownDescription": "OpenAI-compatible endpoints used by `MLsem: Infer type with LLM`: a hosted API, or a local server (Ollama, llama.cpp, LM Studio, vLLM, unsloth studio). Without `models`, the toolkit offers the models the server lists (`GET {baseUrl}/models`), listed again with its refresh button. Each provider's API key is set with `MLsem: Set LLM API key`; without one, no `Authorization` header is sent.\n\nExample: `{ \"openai\": { \"baseUrl\": \"https://api.openai.com/v1\", \"models\": [\"gpt-5-mini\"] }, \"ollama\": { \"baseUrl\": \"http://localhost:11434/v1\" } }`",
 					"scope": "window",
 					"type": "object",
 					"additionalProperties": {
@@ -158,12 +158,11 @@
 								"items": {
 									"type": "string"
 								},
-								"description": "Models of the provider offered in the type toolkit."
+								"description": "Models of the provider offered in the type toolkit. Optional: without it, the models the server lists."
 							}
 						},
 						"required": [
-							"baseUrl",
-							"models"
+							"baseUrl"
 						]
 					}
 				},

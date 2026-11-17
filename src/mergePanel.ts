@@ -2,7 +2,16 @@ import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import type { LanguageClient } from "vscode-languageclient/node";
 import { Config } from "./config";
-import { allModels, llmStatus, onLlmStatus, selectedModel, selectModel } from "./llm";
+import {
+	allModels,
+	discoverModels,
+	llmStatus,
+	modelListings,
+	onLlmStatus,
+	onModelsListed,
+	selectedModel,
+	selectModel,
+} from "./llm";
 import type {
 	CallInstance,
 	ExtensionToWebview,
@@ -501,6 +510,7 @@ export function openTypeToolkit(
 			type: "llmSettings",
 			settings: {
 				models: allModels(config),
+				listings: modelListings(config),
 				model: chosen && { api: chosen.api, provider: chosen.provider, model: chosen.model, effort: chosen.effort },
 				baseUrl: chosen?.baseUrl,
 				maxTries: config.llmMaxTries,
@@ -523,8 +533,13 @@ export function openTypeToolkit(
 	}
 	const llmSubscriptions = [
 		onLlmStatus((status) => panel?.webview.postMessage({ type: "llmStatus", status })),
+		onModelsListed(() => postLlmSettings()),
 		vscode.workspace.onDidChangeConfiguration((e) => {
-			if (e.affectsConfiguration("mlsem.llm")) postLlmSettings();
+			if (e.affectsConfiguration("mlsem.llm")) {
+				postLlmSettings();
+				// A new provider, or a new base URL, is listed.
+				void discoverModels(context, config);
+			}
 			if (e.affectsConfiguration("mlsem.debug.anchors")) postDebugAnchors();
 			if (
 				e.affectsConfiguration("workbench") ||
@@ -543,6 +558,7 @@ export function openTypeToolkit(
 		if (message.type === "ready") {
 			postTokenColors();
 			postLlmSettings();
+			void discoverModels(context, config);
 			postDebugAnchors();
 			panel.webview.postMessage({ type: "llmStatus", status: llmStatus() });
 			await refreshCurrent();
@@ -643,6 +659,8 @@ export function openTypeToolkit(
 			panel?.webview.postMessage({ type: "narrowChecked", line, start, end, text, ...r });
 		} else if (message.type === "setTimeoutCountsAsFail") {
 			await config.setLlmTimeoutCountsAsFail(message.value);
+		} else if (message.type === "refreshModels") {
+			await discoverModels(context, config, { force: true });
 		} else if (message.type === "selectModel") {
 			await selectModel(context, message.model);
 			postLlmSettings();
