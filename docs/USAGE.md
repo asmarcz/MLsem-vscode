@@ -50,6 +50,16 @@ overload, *Split* replaces the line by all its rows. *Fill all* fills every
 line; if some line has several rows the button reads *Fill all and split*
 and splits those.
 
+To fill a hole only in part, click under a part of its value in a row, as in
+Widen: the part stays a hole `_` (click again to fill it back), and the line
+as it will be written shows under the row. *Fill*, *Split* and *Fill all*
+write the values with those parts as holes. For example, to say only that
+`insert` returns a node, keep the node's contents of
+`val insert : tree(string) -> int -> string -> Node(tree(string), int, string, tree(string))`
+as a hole: *Fill* writes `... -> Node(_)`, and callers still get the whole
+node. The line still checks: the whole value is one solution of the holes
+left. A value is written in parentheses only where its hole needs them.
+
 **Extract repeated parts.** Pick the parts of a `val` type that repeat and
 name them; they become `where` definitions. For parts with holes: *Shared
 holes* (all copies share them) or *Separate holes* (each hole a parameter, so
