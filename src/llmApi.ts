@@ -63,23 +63,146 @@ export interface Conversation {
 // Fits the instruction and a few val lines; thinking counts towards it.
 const MAX_TOKENS = 16000;
 
+// A model of an OpenAI-compatible server's list, and whether it is loaded
+// when the server says (unsloth studio does; most do not).
+export interface ListedModel {
+	id: string;
+	loaded?: boolean;
+}
+
+// The models an OpenAI-compatible server lists (GET {baseUrl}/models, the
+// ids of [data]), in its order. Without a key, no Authorization header is
+// sent: local servers need none, and some reject any token they do not know.
+export async function listModels(baseUrl: string, apiKey: string | undefined, signal?: AbortSignal) {
+	const url = `${baseUrl.replace(/\/+$/, "")}/models`;
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+			signal: signal ?? AbortSignal.timeout(10_000),
+		});
+	} catch (e) {
+		throw new Error(`could not reach ${url} (${causeText(e)})`);
+	}
+	if (!res.ok) throw new Error(`${url} answered ${res.status}${bodyText(await res.text().catch(() => ""))}`);
+	const json = (await res.json().catch(() => undefined)) as { data?: unknown } | undefined;
+	if (!Array.isArray(json?.data)) throw new Error(`${url} did not answer a list of models`);
+	const models: ListedModel[] = [];
+	for (const m of json.data as { id?: unknown; loaded?: unknown }[]) {
+		if (typeof m?.id !== "string" || m.id.trim() === "" || models.some((n) => n.id === m.id)) continue;
+		models.push(typeof m.loaded === "boolean" ? { id: m.id, loaded: m.loaded } : { id: m.id });
+	}
+	return models;
+}
+
+// Why a request did not reach its server: the code of the network error
+// under it (ECONNREFUSED under Node's "fetch failed"), the innermost
+// message, or a timeout.
+function causeText(e: unknown): string {
+	if (e instanceof Error && e.name === "TimeoutError") return "no answer within 10 s";
+	let message = String(e);
+	for (let c: unknown = e; c instanceof Error; c = c.cause) {
+		const code = (c as { code?: unknown }).code;
+		if (typeof code === "string") return code;
+		message = c.message;
+	}
+	return message;
+}
+
+// The message of an error answer, shortened: ": <message>", or "".
+function bodyText(body: string): string {
+	let message = body.trim();
+	try {
+		const j = JSON.parse(body);
+		const m = j?.error?.message ?? j?.error ?? j?.detail ?? j?.message;
+		if (typeof m === "string") message = m;
+	} catch {
+		// Not JSON: the text itself.
+	}
+	message = message.replace(/\s+/g, " ");
+	if (message.length > 120) message = `${message.slice(0, 117)}...`;
+	return message ? `: ${message}` : "";
+}
+
+// What went wrong with a request to an OpenAI-compatible server, for the
+// panel and the notification: the usual causes with local servers named.
+export function openAiErrorText(e: unknown, baseUrl: string, model: string): string {
+	if (e instanceof OpenAI.APIConnectionTimeoutError) return `${baseUrl} did not answer in time.`;
+	if (e instanceof OpenAI.APIConnectionError)
+		return `Could not reach ${baseUrl} (${causeText(e)}). Is the server running?`;
+	if (e instanceof OpenAI.APIError) {
+		const message = e.message.replace(/^\d+\s*/, "");
+		if (e.status === 401 || e.status === 403)
+			return `${baseUrl} rejected the request (${e.status}: ${message}). Set its key with "MLsem: Set LLM API key", or leave the key empty for a server that needs none.`;
+		if (e.status === 404 || e.status === 400 || e.status === 503)
+			return `${baseUrl} answered ${e.status}: ${message}. Is ${model} available and loaded on the server?`;
+		return `${baseUrl} answered ${e.status ?? "an error"}: ${message}`;
+	}
+	return String(e);
+}
+
+// The answer and the thinking in a reply's content. Reasoning models served
+// without a reasoning parser put their thinking in the content, between
+// <think> and </think>; a chat template that opens the block itself leaves
+// only the </think>. A block that never closes is all thinking (the answer
+// ran out of tokens).
+export function splitThinking(content: string): { text: string; thinking: string } {
+	const thinking: string[] = [];
+	let text = content.replace(/<think>([\s\S]*?)<\/think>/g, (_, t: string) => {
+		thinking.push(t);
+		return "";
+	});
+	const close = text.lastIndexOf("</think>");
+	if (close >= 0) {
+		thinking.push(text.slice(0, close));
+		text = text.slice(close + "</think>".length);
+	}
+	const open = text.indexOf("<think>");
+	if (open >= 0) {
+		thinking.push(text.slice(open + "<think>".length));
+		text = text.slice(0, open);
+	}
+	return { text: text.trim(), thinking: thinking.map((t) => t.trim()).join("\n") };
+}
+
 export function openAiConversation(
 	baseUrl: string,
-	apiKey: string,
+	apiKey: string | undefined,
 	model: string,
 	system: string,
 	first: string,
 ): Conversation {
-	// The SDK refuses an empty key; local servers ignore whatever is sent.
-	const client = new OpenAI({ baseURL: baseUrl, apiKey: apiKey || "none" });
+	// The SDK refuses an empty key, and sends whatever it is given as a
+	// bearer token. Without a key the header is left out: local servers need
+	// none, and some reject any token they do not know.
+	const client = new OpenAI({
+		baseURL: baseUrl,
+		apiKey: apiKey || "none",
+		...(apiKey ? {} : { defaultHeaders: { Authorization: null } }),
+	});
 	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
 		{ role: "system", content: system },
 		{ role: "user", content: first },
 	];
 	return {
 		async ask(signal) {
-			const completion = await client.chat.completions.create({ model, messages }, { signal });
-			const text = completion.choices[0]?.message.content ?? "";
+			let completion: OpenAI.Chat.ChatCompletion;
+			try {
+				completion = await client.chat.completions.create({ model, messages }, { signal });
+			} catch (e) {
+				if (signal.aborted) throw e;
+				throw new Error(openAiErrorText(e, baseUrl, model));
+			}
+			const message = completion.choices[0]?.message;
+			const { text, thinking } = splitThinking(message?.content ?? "");
+			// The reasoning of servers that parse it out of the content
+			// (llama.cpp, vLLM, LM Studio: reasoning_content; Ollama: reasoning).
+			const separate = message as { reasoning_content?: unknown; reasoning?: unknown } | undefined;
+			const reasoning = [separate?.reasoning_content, separate?.reasoning].find(
+				(r): r is string => typeof r === "string" && r.trim() !== "",
+			);
+			// The answer alone goes back: reasoning models expect their earlier
+			// thinking left out of the conversation.
 			messages.push({ role: "assistant", content: text });
 			const u = completion.usage;
 			const usage = u && {
@@ -89,7 +212,7 @@ export function openAiConversation(
 				cached: u.prompt_tokens_details?.cached_tokens ?? 0,
 				reasoning: u.completion_tokens_details?.reasoning_tokens ?? 0,
 			};
-			return { text, thinking: "", usage };
+			return { text, thinking: [reasoning, thinking].filter(Boolean).join("\n"), usage };
 		},
 		tell(text) {
 			messages.push({ role: "user", content: text });
