@@ -77,7 +77,11 @@ accepts fewer inputs, which a recursive call may still need; narrowing a
 result promises more.
 
 **Simplify.** Same, with equivalent simpler forms of a part, each with the
-steps that give it.
+steps that give it. On a whole line it also offers merging two type
+variables when the line means the same afterwards:
+`tree('b) -> int -> 'a -> tree('b | 'a)` becomes
+`tree('a) -> int -> 'a -> tree('a)` because `tree` is covariant; for an
+abstract type, which is invariant, it is not offered.
 
 **Overload merging.** Select `val` lines to combine:
 - *Collapse*: the smallest single arrow containing them. Always holds, but
