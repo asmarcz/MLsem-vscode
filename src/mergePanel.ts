@@ -10,6 +10,7 @@ import type {
 	ExtractLine,
 	ExtractMode,
 	HoleLine,
+	KeptValue,
 	PartLine,
 	PartTool,
 	WebviewToExtension,
@@ -237,10 +238,14 @@ async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<H
 	// overload, a hole with a single value repeating it in each.
 	return [...byLine.entries()].map(([line, { text, holes }]) => {
 		const widest = holes.reduce((a, h) => (h.rows.length > a.rows.length ? h : a), holes[0]);
-		const rows = widest.rows.map((r, k) => ({
-			overload: r.overload ?? undefined,
-			values: holes.map((h) => (h.rows.length === widest.rows.length ? h.rows[k] : h.rows[0])?.value ?? null),
-		}));
+		const rows = widest.rows.map((r, k) => {
+			const of = holes.map((h) => (h.rows.length === widest.rows.length ? h.rows[k] : h.rows[0]));
+			return {
+				overload: r.overload ?? undefined,
+				values: of.map((x) => x?.value ?? null),
+				parts: of.map((x) => (x?.value == null ? [] : (x.parts ?? []))),
+			};
+		});
 		return {
 			line,
 			text,
@@ -292,13 +297,21 @@ async function extractApply(
 // The holes last posted to the panel, which "fillHoles" replaces.
 let currentHoles: HoleLine[] = [];
 
+// The value of hole [i] of line [l] in row [row]: the one in [kept], with
+// parts kept as holes, else the row's.
+function holeValue(l: HoleLine, row: number, i: number, kept: KeptValue[]): string | null {
+	const k = kept.find((x) => x.line === l.line && x.row === row && x.start === l.holes[i].start);
+	return k ? k.value : (l.rows[row]?.values[i] ?? null);
+}
+
 // Replace val line [l] by one line per row, its holes filled from that row:
 // replaced from the last, so that the earlier positions still hold. A hole
 // the row has no value for stays as written.
-function splitLine(we: vscode.WorkspaceEdit, uri: vscode.Uri, l: HoleLine): void {
-	const lines = l.rows.map((r) =>
+function splitLine(we: vscode.WorkspaceEdit, uri: vscode.Uri, l: HoleLine, kept: KeptValue[]): void {
+	const lines = l.rows.map((_, row) =>
 		l.holes.reduceRight(
-			(text, h, i) => text.slice(0, h.start) + (r.values[i] ?? text.slice(h.start, h.end)) + text.slice(h.end),
+			(text, h, i) =>
+				text.slice(0, h.start) + (holeValue(l, row, i, kept) ?? text.slice(h.start, h.end)) + text.slice(h.end),
 			l.text,
 		),
 	);
@@ -525,10 +538,10 @@ export function openTypeToolkit(
 				// Filling all: a line with one row is filled from it, one with
 				// several is split.
 				for (const l of currentHoles) {
-					if (l.rows.length > 1) splitLine(we, uri, l);
+					if (l.rows.length > 1) splitLine(we, uri, l, message.kept);
 					else
 						l.holes.forEach((h, i) => {
-							const value = l.rows[0]?.values[i];
+							const value = holeValue(l, 0, i, message.kept);
 							if (value) we.replace(uri, new vscode.Range(l.line, h.start, l.line, h.end), value);
 						});
 				}
@@ -536,7 +549,7 @@ export function openTypeToolkit(
 				for (const h of message.holes) {
 					const l = currentHoles.find((x) => x.line === h.line);
 					const i = l?.holes.findIndex((x) => x.start === h.start) ?? -1;
-					const value = l && i >= 0 ? l.rows[h.row]?.values[i] : null;
+					const value = l && i >= 0 ? holeValue(l, h.row, i, message.kept) : null;
 					if (l && value) we.replace(uri, new vscode.Range(l.line, l.holes[i].start, l.line, l.holes[i].end), value);
 				}
 			}
@@ -547,7 +560,7 @@ export function openTypeToolkit(
 			const l = currentHoles.find((x) => x.line === message.line);
 			if (!uri || !l) return;
 			const we = new vscode.WorkspaceEdit();
-			splitLine(we, uri, l);
+			splitLine(we, uri, l, message.kept);
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
 		} else if (message.type === "requestExtractPreview") {

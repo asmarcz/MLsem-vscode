@@ -665,6 +665,42 @@ body {
 	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
 }
 
+/* A row's filled line, with the anchors of the parts of its values under
+   it and the line as Fill writes it under that. */
+.hole-filled-row > .hole-row-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* A hole in a row takes no more room than its text, so that the anchors
+   under the row line up with it: an outline, not a border, marks it. */
+.hole.hole-flush {
+	padding: 0;
+	border: none;
+}
+
+.hole-flush.hole-none {
+	outline: 1px dashed var(--tk-border);
+}
+
+.hole-flush:hover {
+	outline: 1px solid var(--tk-border-strong);
+}
+
+.hole-flush.hole-selected,
+.hole-flush.hole-selected:hover {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+/* A part inside one kept as a hole goes with it. */
+.widen-anchor:disabled,
+.widen-anchor:disabled:hover {
+	opacity: 0.25;
+	cursor: default;
+}
+
 /* Widen: the part is an inline dropdown in the line, marked like a hole; a
    changed choice like a filled one. */
 .type-select {

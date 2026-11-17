@@ -3,7 +3,7 @@
 // (protocol.ts).
 
 import type * as lsp from "vscode-languageclient/node";
-import type { ExtractLine, PartLine, Precision } from "./protocol";
+import type { ExtractLine, PartLine, Precision, ValuePart } from "./protocol";
 
 export interface EditRange {
 	start: { line: number; character: number };
@@ -87,8 +87,9 @@ export interface HolesResult {
 	holes?: {
 		range: EditRange;
 		hole: string;
-		// One value, or one per overload of the line's result.
-		rows: { overload: string | null; value: string | null }[];
+		// One value, or one per overload of the line's result: as written in
+		// place of the hole, with the parts of it that may be kept as holes.
+		rows: { overload: string | null; value: string | null; parts: ValuePart[] }[];
 		lineText: string;
 	}[];
 }

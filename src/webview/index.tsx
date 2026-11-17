@@ -11,6 +11,7 @@ import {
 	type HoleLine,
 	type Instantiation,
 	isFromExtension,
+	type KeptValue,
 	type LlmAttempt,
 	type LlmSettings,
 	type LlmStatus,
@@ -25,6 +26,7 @@ import {
 	type TokenStyle,
 	type TypePart,
 	triesText,
+	type ValuePart,
 	type WebviewToExtension,
 } from "../protocol";
 import { Code, TokenColors } from "./highlight";
@@ -88,10 +90,12 @@ interface AppState {
 	target: string | null;
 	// Why the overload tools have no binding, when the request failed.
 	overloadsFailure: string | null;
-	// The target's val lines with resolved holes, and the holes picked for
-	// Fill, by [holeKey].
+	// The target's val lines with resolved holes, the holes picked for Fill,
+	// by [holeKey], and the parts of their values kept as holes, by
+	// [keptKey].
 	holes: HoleLine[];
 	selectedHoles: string[];
+	keptParts: string[];
 	extract: ExtractState;
 	// Per part tool, the target's val lines with the parts it has options
 	// for, or why there are none.
@@ -140,6 +144,9 @@ type Action =
 	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
 	| { type: "TOGGLE_HOLE"; line: number; row: number; start: number }
+	// Keep part [part] of the value of the hole at [start] in [row] as a
+	// hole, or fill it back.
+	| { type: "TOGGLE_KEPT"; line: number; row: number; start: number; part: ValuePart }
 	| { type: "TOGGLE_EXTRACT"; line: number; key: string }
 	| { type: "SET_EXTRACT_NAME"; line: number; key: string; name: string }
 	| { type: "EXTRACT_APPLYING" }
@@ -172,6 +179,7 @@ const initialState: AppState = {
 	overloadsFailure: null,
 	holes: [],
 	selectedHoles: [],
+	keptParts: [],
 	extract: initialExtract,
 	parts: { widen: initialParts, simplify: initialParts },
 	tokenColors: {},
@@ -311,7 +319,18 @@ function reducer(state: AppState, action: Action): AppState {
 			const keys = action.lines.flatMap((l) =>
 				l.rows.flatMap((_, row) => l.holes.map((h) => holeKey(l.line, row, h.start))),
 			);
-			return { ...state, holes: action.lines, selectedHoles: state.selectedHoles.filter((k) => keys.includes(k)) };
+			// And the parts kept as holes that are still parts of the same value.
+			const kept = action.lines.flatMap((l) =>
+				l.rows.flatMap((r, row) =>
+					l.holes.flatMap((h, i) => (r.parts[i] ?? []).map((p) => keptKey(l.line, row, h.start, p))),
+				),
+			);
+			return {
+				...state,
+				holes: action.lines,
+				selectedHoles: state.selectedHoles.filter((k) => keys.includes(k)),
+				keptParts: state.keptParts.filter((k) => kept.includes(k)),
+			};
 		}
 		case "extractGroups": {
 			// Keep the choices and names of parts that are still there, by line.
@@ -350,17 +369,22 @@ function reducer(state: AppState, action: Action): AppState {
 		case "extracted":
 			return { ...state, extract: { ...state.extract, applying: false, error: action.error ?? null } };
 		case "TOGGLE_HOLE": {
-			// A named hole ('_a) is one variable: its occurrences on the line
-			// are picked together, within the row.
-			const line = state.holes.find((l) => l.line === action.line);
-			const hole = line?.holes.find((h) => h.start === action.start);
-			if (!line || !hole) return state;
-			const group = line.holes
-				.filter((h) => h.start === hole.start || (hole.hole !== "_" && h.hole === hole.hole))
-				.map((h) => holeKey(line.line, action.row, h.start));
-			const on = state.selectedHoles.includes(holeKey(line.line, action.row, hole.start));
+			const group = holeGroup(state.holes, action.line, action.row, action.start);
+			if (group.length === 0) return state;
+			const on = state.selectedHoles.includes(holeKey(action.line, action.row, action.start));
 			const rest = state.selectedHoles.filter((k) => !group.includes(k));
 			return { ...state, selectedHoles: on ? rest : [...rest, ...group] };
+		}
+		case "TOGGLE_KEPT": {
+			const k = keptKey(action.line, action.row, action.start, action.part);
+			if (state.keptParts.includes(k)) return { ...state, keptParts: state.keptParts.filter((x) => x !== k) };
+			// Keeping a part is filling the rest of the value: its hole is
+			// selected for Fill.
+			const group = holeGroup(state.holes, action.line, action.row, action.start);
+			const selected = state.selectedHoles.includes(holeKey(action.line, action.row, action.start))
+				? state.selectedHoles
+				: [...state.selectedHoles.filter((x) => !group.includes(x)), ...group];
+			return { ...state, keptParts: [...state.keptParts, k], selectedHoles: selected };
 		}
 		case "TOGGLE": {
 			const t = action.text;
@@ -966,22 +990,102 @@ function holeKey(line: number, row: number, start: number) {
 	return `${line}:${row}:${start}`;
 }
 
+// The keys of the hole at [start] of [line] in [row] and of the holes
+// picked with it: a named hole ('_a) is one variable, its occurrences on
+// the line are picked together, within the row. Empty when it is gone.
+function holeGroup(holes: HoleLine[], line: number, row: number, start: number): string[] {
+	const l = holes.find((x) => x.line === line);
+	const hole = l?.holes.find((h) => h.start === start);
+	if (!l || !hole) return [];
+	return l.holes
+		.filter((h) => h.start === hole.start || (hole.hole !== "_" && h.hole === hole.hole))
+		.map((h) => holeKey(line, row, h.start));
+}
+
+// Identifies a part of a hole's value kept as a hole: its hole's key, and
+// its place and text in the value.
+function keptKey(line: number, row: number, start: number, p: ValuePart) {
+	return `${holeKey(line, row, start)}:${p.start}:${p.end}:${p.text}`;
+}
+
+// The parts of the value of hole [i] of [line] in [row] kept as holes,
+// without those inside another: they go with it.
+function keptOf(line: HoleLine, row: number, i: number, kept: string[]): ValuePart[] {
+	const start = line.holes[i].start;
+	const marked = (line.rows[row]?.parts[i] ?? []).filter((p) => kept.includes(keptKey(line.line, row, start, p)));
+	return marked.filter((p) => !marked.some((q) => q !== p && q.start <= p.start && p.end <= q.end));
+}
+
+// The value of hole [i] of [line] in [row], its kept parts written [_]:
+// from the last, so that the earlier positions still hold.
+function keptValue(line: HoleLine, row: number, i: number, kept: string[]): string | null {
+	const value = line.rows[row]?.values[i] ?? null;
+	if (value === null) return null;
+	return keptOf(line, row, i, kept)
+		.sort((a, b) => b.start - a.start)
+		.reduce((text, p) => `${text.slice(0, p.start)}_${text.slice(p.end)}`, value);
+}
+
+// The values with parts kept as holes, for Fill, Fill all and Split.
+function keptValues(holes: HoleLine[], kept: string[]): KeptValue[] {
+	return holes.flatMap((l) =>
+		l.rows.flatMap((r, row) =>
+			l.holes.flatMap((h, i) => {
+				const value = keptValue(l, row, i, kept);
+				return value !== null && value !== r.values[i] ? [{ line: l.line, row, start: h.start, value }] : [];
+			}),
+		),
+	);
+}
+
+// The index of part [j] of the value of hole [i] among the parts of the
+// values of [row], for its colour.
+function rowPartIndex(line: HoleLine, row: number, i: number, j: number): number {
+	return line.rows[row].parts.slice(0, i).reduce((n, ps) => n + ps.length, 0) + j;
+}
+
+// The value of hole [i] of [line] in [row], its parts kept as holes tinted
+// in their colours.
+function ValueText({ line, row, i, kept }: { line: HoleLine; row: number; i: number; kept: string[] }) {
+	const value = line.rows[row].values[i] ?? "";
+	const all = line.rows[row].parts[i] ?? [];
+	const pieces: ComponentChildren[] = [];
+	let at = 0;
+	for (const p of keptOf(line, row, i, kept).sort((a, b) => a.start - b.start)) {
+		const color = partColor(rowPartIndex(line, row, i, all.indexOf(p)));
+		pieces.push(<Code key={`t${at}`} text={value.slice(at, p.start)} />);
+		pieces.push(
+			<span key={`p${p.start}`} style={{ background: `color-mix(in srgb, ${color} 30%, transparent)` }}>
+				<Code text={value.slice(p.start, p.end)} />
+			</span>,
+		);
+		at = p.end;
+	}
+	pieces.push(<Code key={`t${at}`} text={value.slice(at)} />);
+	return <>{pieces}</>;
+}
+
 // A val line with its holes marked: as written ([row] undefined), or with
-// the values of a row in their place. A hole is a toggle, selected holes
-// being the ones Fill writes: in a row, or as written when the line has a
-// single row. A hole a row has no value for stays as written.
+// the values of a row in their place, their parts kept as holes tinted. A
+// hole is a toggle, selected holes being the ones Fill writes: in a row, or
+// as written when the line has a single row. A hole a row has no value for
+// stays as written. In a row, a hole takes no more room than its text, so
+// that the anchors under the row line up with it.
 function HoleText({
 	line,
 	row,
 	selected,
+	kept,
 	dispatch,
 }: {
 	line: HoleLine;
 	row?: number;
 	selected: string[];
+	kept: string[];
 	dispatch: (a: Action) => void;
 }) {
 	const toggles = row ?? (line.rows.length === 1 ? 0 : undefined);
+	const flush = row === undefined ? "" : " hole-flush";
 	const parts: ComponentChildren[] = [];
 	let at = 0;
 	// The text around holes ends at a hole, so highlighting it piece by piece
@@ -994,7 +1098,7 @@ function HoleText({
 			parts.push(
 				<span
 					key={h.start}
-					class={row === undefined ? "hole" : "hole hole-none"}
+					class={row === undefined ? "hole" : `hole hole-none${flush}`}
 					title={row === undefined ? undefined : "No value for this overload"}
 				>
 					<Code text={written} />
@@ -1002,17 +1106,17 @@ function HoleText({
 			);
 		} else {
 			const on = selected.includes(holeKey(line.line, toggles, h.start));
-			const shown = line.rows[toggles].values[i];
+			const shown = keptValue(line, toggles, i, kept);
 			parts.push(
 				<button
 					key={h.start}
 					type="button"
-					class={`hole${row !== undefined ? " hole-filled" : ""}${on ? " hole-selected" : ""}`}
+					class={`hole${row !== undefined ? " hole-filled" : ""}${flush}${on ? " hole-selected" : ""}`}
 					aria-pressed={on}
 					title={`${h.hole} = ${shown}`}
 					onClick={() => dispatch({ type: "TOGGLE_HOLE", line: line.line, row: toggles, start: h.start })}
 				>
-					<Code text={row === undefined ? written : (value ?? written)} />
+					{row === undefined ? <Code text={written} /> : <ValueText line={line} row={row} i={i} kept={kept} />}
 				</button>,
 			);
 		}
@@ -1231,11 +1335,11 @@ function partKey(line: number, p: TypePart) {
 // The height of each part of a line among its parts: 0 when none is inside
 // it, else one more than the highest inside. Parts of one height do not
 // nest, so they share a track.
-function partHeights(parts: TypePart[]): number[] {
-	const inside = (a: TypePart, b: TypePart) =>
+function partHeights<P extends { start: number; end: number }>(parts: P[]): number[] {
+	const inside = (a: P, b: P) =>
 		a !== b && b.start <= a.start && a.end <= b.end && (a.start !== b.start || a.end !== b.end);
-	const heights = new Map<TypePart, number>();
-	const height = (p: TypePart): number => {
+	const heights = new Map<P, number>();
+	const height = (p: P): number => {
 		const known = heights.get(p);
 		if (known !== undefined) return known;
 		const h = parts.reduce((m, q) => (inside(q, p) ? Math.max(m, height(q) + 1) : m), 0);
@@ -1488,32 +1592,148 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 	);
 }
 
+// A row of a draft val line: the line filled from it, and under it, as in
+// Widen, an anchor per part of its values that may be kept as a hole,
+// innermost nearest the text; an anchor toggles its part between its text
+// and [_]. A part inside one kept goes with it. Under the block, the line
+// as Fill writes it, when a part is kept.
+function HoleRowView({
+	line,
+	row,
+	state,
+	dispatch,
+}: {
+	line: HoleLine;
+	row: number;
+	state: AppState;
+	dispatch: (a: Action) => void;
+}) {
+	const r = line.rows[row];
+	// Each part, at its columns in the filled line: a value moves the text
+	// after its hole by how much longer it is than the hole.
+	const anchors: { start: number; end: number; part: ValuePart; hole: number; index: number }[] = [];
+	let shift = 0;
+	line.holes.forEach((h, i) => {
+		const value = r.values[i];
+		if (value === null) return;
+		(r.parts[i] ?? []).forEach((p, j) => {
+			anchors.push({
+				start: h.start + shift + p.start,
+				end: h.start + shift + p.end,
+				part: p,
+				hole: i,
+				index: rowPartIndex(line, row, i, j),
+			});
+		});
+		shift += value.length - (h.end - h.start);
+	});
+	const width = line.text.length + shift;
+	const heights = partHeights(anchors);
+	const tracks = Math.max(-1, ...heights) + 1;
+	const isKept = (a: (typeof anchors)[number]) =>
+		state.keptParts.includes(keptKey(line.line, row, line.holes[a.hole].start, a.part));
+	const outer = line.holes.map((_, i) => keptOf(line, row, i, state.keptParts));
+	// Inside a part kept as a hole: it goes with it.
+	const covered = (a: (typeof anchors)[number]) =>
+		outer[a.hole].some((q) => q !== a.part && q.start <= a.part.start && a.part.end <= q.end);
+	const written = line.holes.reduceRight(
+		(text, h, i) =>
+			text.slice(0, h.start) +
+			(keptValue(line, row, i, state.keptParts) ?? text.slice(h.start, h.end)) +
+			text.slice(h.end),
+		line.text,
+	);
+	const someKept = outer.some((ps) => ps.length > 0);
+	return (
+		<div class="hole-row-text">
+			<div class="surface code-text preview-block extract-block">
+				<div class="extract-text">
+					<HoleText line={line} row={row} selected={state.selectedHoles} kept={state.keptParts} dispatch={dispatch} />
+				</div>
+				{Array.from({ length: tracks }, (_, t) => (
+					// Keyed by height: tracks are the levels of nesting.
+					<div key={t} class="widen-track" style={{ width: `${width}ch` }}>
+						{anchors.map((a, k) => {
+							if (heights[k] !== t) return null;
+							const on = isKept(a);
+							const inside = covered(a);
+							return (
+								<button
+									key={`${a.hole}:${a.part.start}:${a.part.end}`}
+									type="button"
+									class={`widen-anchor${on && !inside ? " chosen" : ""}`}
+									style={{ left: `${a.start}ch`, width: `${a.end - a.start}ch` }}
+									aria-pressed={on}
+									disabled={inside}
+									title={
+										inside
+											? `${a.part.text}: inside a part kept as a hole`
+											: on
+												? `Fill ${a.part.text} back`
+												: `Keep ${a.part.text} as a hole _`
+									}
+									onClick={() =>
+										dispatch({
+											type: "TOGGLE_KEPT",
+											line: line.line,
+											row,
+											start: line.holes[a.hole].start,
+											part: a.part,
+										})
+									}
+								>
+									<span
+										class="anchor"
+										data-anchor={`${a.start},${a.end}`}
+										data-inset="3"
+										// Inset by a few pixels, so that the slanted ends of
+										// neighbouring parts do not touch.
+										style={{ left: "3px", right: "3px", color: on && !inside ? partColor(a.index) : undefined }}
+									/>
+								</button>
+							);
+						})}
+					</div>
+				))}
+			</div>
+			{someKept && (
+				<div class="surface code-text preview-block widen-written">
+					<Code text={written} />
+				</div>
+			)}
+		</div>
+	);
+}
+
 // The draft val lines of the target: each as written, then filled in, once,
 // or once per overload of its result when they disagree on its holes. Fill
 // writes a row's selected holes, and is disabled until one is selected; a
 // line with several rows has Split, which writes it as one line per row;
-// Fill all fills the lines with one row and splits the others.
+// Fill all fills the lines with one row and splits the others. Each writes
+// a value with the parts kept as holes written [_].
 function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
+	const kept = keptValues(state.holes, state.keptParts);
 	const fill = (holes?: { line: number; row: number; start: number }[]) =>
-		vscodeApi.postMessage({ type: "fillHoles", holes });
+		vscodeApi.postMessage({ type: "fillHoles", holes, kept });
 	const several = state.holes.some((l) => l.rows.length > 1);
 	return (
 		<>
 			<p class="note tool-subtitle">
-				The types the holes of the draft signature were resolved to. Click holes to fill only those.
+				The types the holes of the draft signature were resolved to. Click holes to fill only those. Click under a part
+				of a type to keep it as a hole.
 			</p>
 			{state.holes.map((l) => (
 				<div key={l.line} class="hole-line">
 					<div class="hole-filled-row">
 						<div class="surface code-text preview-block">
-							<HoleText line={l} selected={state.selectedHoles} dispatch={dispatch} />
+							<HoleText line={l} selected={state.selectedHoles} kept={state.keptParts} dispatch={dispatch} />
 						</div>
 						{l.rows.length > 1 && (
 							<button
 								class="btn btn-secondary"
 								type="button"
 								title="Write this line as one val line per row below, which keeps every case"
-								onClick={() => vscodeApi.postMessage({ type: "splitHoles", line: l.line })}
+								onClick={() => vscodeApi.postMessage({ type: "splitHoles", line: l.line, kept })}
 							>
 								Split
 							</button>
@@ -1527,9 +1747,7 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 						return (
 							<div key={row} class="hole-row">
 								<div class="hole-filled-row">
-									<div class="surface code-text preview-block">
-										<HoleText line={l} row={row} selected={state.selectedHoles} dispatch={dispatch} />
-									</div>
+									<HoleRowView line={l} row={row} state={state} dispatch={dispatch} />
 									<button
 										class="btn btn-secondary"
 										type="button"
