@@ -1100,14 +1100,11 @@ function TypeSelect({
 	}
 
 	// With [free], an option with [_] arguments ([tree(_)]) is a template:
-	// picked, it goes into the field, its first [_] selected, for the
+	// picked as it is, its [_] holes; or edited (its row's edit button, or →
+	// on it): it goes into the field, its first [_] selected, for the
 	// arguments to be typed.
 	const isTemplate = (o: string) => free === true && /\(([^()]*[,\s])?_([,\s][^()]*)?\)/.test(o);
-	function choose(o: string) {
-		if (!isTemplate(o)) {
-			pick(o);
-			return;
-		}
+	function edit(o: string) {
 		setTyped(o);
 		requestAnimationFrame(() => {
 			const f = field.current;
@@ -1123,7 +1120,11 @@ function TypeSelect({
 		if (e.key === "ArrowDown") setActive((a) => Math.min(a + 1, last));
 		else if (e.key === "ArrowUp") setActive((a) => Math.max(a - 1, 0));
 		else if (e.key === "Enter" && typed.trim() !== "") pick(typed.trim());
-		else if ((e.key === "Enter" || (e.key === " " && !free)) && options[active] !== undefined) choose(options[active]);
+		else if ((e.key === "Enter" || (e.key === " " && !free)) && options[active] !== undefined) pick(options[active]);
+		// → edits the active template; in a field being typed in, it moves
+		// the caret.
+		else if (e.key === "ArrowRight" && typed === "" && options[active] !== undefined && isTemplate(options[active]))
+			edit(options[active]);
 		else if (e.key === "Escape" || e.key === "Tab") {
 			setOpen(false);
 			if (e.key === "Escape") button.current?.focus();
@@ -1196,11 +1197,25 @@ function TypeSelect({
 							onMouseDown={(e) => {
 								// Keep the focus in the list until the pick moves it.
 								e.preventDefault();
-								choose(o);
+								pick(o);
 							}}
 						>
 							<Code text={o} />
 							{notes?.[o] && <span class="type-select-note">{notes[o]}</span>}
+							{isTemplate(o) && (
+								<span
+									class="type-select-edit"
+									title="Type the arguments (→)"
+									aria-hidden="true"
+									onMouseDown={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										edit(o);
+									}}
+								>
+									✎
+								</span>
+							)}
 						</div>
 					))}
 				</div>

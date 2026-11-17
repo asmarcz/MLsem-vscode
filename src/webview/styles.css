@@ -786,6 +786,21 @@ body {
 	opacity: var(--tk-dim);
 }
 
+/* A template's edit button, at the end of its row. */
+.type-select-edit {
+	float: right;
+	margin-left: 2ch;
+	padding: 0 4px;
+	border-radius: var(--tk-radius);
+	opacity: var(--tk-dim);
+	cursor: pointer;
+}
+
+.type-select-edit:hover {
+	opacity: 1;
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
 .type-select-option.selected {
 	box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
 }
