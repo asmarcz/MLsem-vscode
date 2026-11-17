@@ -2239,25 +2239,31 @@ function LlmTool({ state }: { state: AppState }) {
 	const settings = state.llmSettings;
 	const running = state.llmStatus.state === "running";
 	const name = state.target;
+	// Providers whose models their server lists; saved by an older version,
+	// the settings may lack them.
+	const listings = settings?.listings ?? [];
+	const listing = listings.some((l) => l.state === "listing");
 	return (
 		<>
-			{settings && settings.models.length > 0 && (
-				<label class="llm-model">
-					<span>Model</span>
+			{settings && (settings.models.length > 0 || listings.length > 0) && (
+				<div class="llm-model">
+					<label for="llm-model-select">Model</label>
 					{/* Options are keyed by their index in settings.models, grouped by
 					    provider (and API) since two providers may offer the same
 					    model, and one model may come at several efforts. */}
 					<select
+						id="llm-model-select"
 						class="select"
 						value={String(
 							settings.models.findIndex((m) => settings.model !== undefined && sameModel(m, settings.model)),
 						)}
-						disabled={running}
+						disabled={running || settings.models.length === 0}
 						onChange={(e) => {
 							const model = settings.models[Number((e.target as HTMLSelectElement).value)];
 							if (model) vscodeApi.postMessage({ type: "selectModel", model });
 						}}
 					>
+						{settings.models.length === 0 && <option value="-1">{listing ? "Listing models…" : "No models"}</option>}
 						{[...new Set(settings.models.map((m) => `${m.api}:${m.provider}`))].map((group) => (
 							<optgroup key={group} label={group.slice(group.indexOf(":") + 1)}>
 								{settings.models.map((m, i) =>
@@ -2270,7 +2276,43 @@ function LlmTool({ state }: { state: AppState }) {
 							</optgroup>
 						))}
 					</select>
-				</label>
+					{listings.length > 0 && (
+						<button
+							type="button"
+							class="icon-btn llm-refresh"
+							aria-label="Refresh the models"
+							title={
+								listing
+									? "Listing the models…"
+									: `List the models of ${listings.map((l) => l.provider).join(", ")} again`
+							}
+							disabled={listing}
+							onClick={() => vscodeApi.postMessage({ type: "refreshModels" })}
+						>
+							<svg class={listing ? "spin" : undefined} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+								<path
+									d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.5h-2.5"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</button>
+					)}
+				</div>
+			)}
+			{listings.map((l) =>
+				l.state === "failed" ? (
+					<p key={l.provider} class="note llm-listing-error">
+						{l.provider}: could not list models: {l.error}
+					</p>
+				) : l.state === "listed" && l.count === 0 ? (
+					<p key={l.provider} class="note">
+						{l.provider} lists no models.
+					</p>
+				) : null,
 			)}
 			{settings && (
 				<p class="llm-settings">
@@ -2285,6 +2327,8 @@ function LlmTool({ state }: { state: AppState }) {
 							)}
 							, up to {settings.maxTries} tries.
 						</>
+					) : listings.length > 0 ? (
+						"No models listed."
 					) : (
 						"No models are set."
 					)}{" "}

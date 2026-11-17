@@ -162,6 +162,56 @@ body {
 	margin: 0 0 6px 0;
 }
 
+/* An icon button, as in VS Code's toolbars: the refresh of the models. */
+.icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	border-radius: var(--tk-radius);
+	background: none;
+	color: inherit;
+	cursor: pointer;
+}
+
+.icon-btn:hover:not(:disabled) {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-btn:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.icon-btn:disabled {
+	cursor: default;
+	opacity: 0.6;
+}
+
+.icon-btn .spin {
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.icon-btn .spin {
+		animation-duration: 3s;
+	}
+}
+
+/* Why a provider's models could not be listed. */
+.llm-listing-error {
+	margin: 0 0 6px 0;
+	color: var(--vscode-errorForeground);
+}
+
 /* A dropdown in VS Code's colours. */
 .select {
 	min-width: 0;
