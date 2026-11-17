@@ -56,19 +56,26 @@ function statusText(name: string, s: DefinitionStatus): string {
 // (`let f x y = ...`) has a curried type ('a -> 'b -> 'c), not a tuple one.
 // Haiku copied the tuple style of `val (+) : (int, int) -> int` and needed a
 // second try on `bal`.
-const SYSTEM_PROMPT = `You write type signatures for MLsem, an ML-like language with set-theoretic types.
+//
+// Examples are quoted in backticks: single quotes also start type variables.
+// The files look like OCaml, so small models write OCaml types ('a list,
+// 'a * 'b, 'a result): the last paragraph of the syntax says how MLsem
+// differs, and [syntaxHints] points at such forms in a rejected answer.
+export const SYSTEM_PROMPT = `You write type signatures for MLsem, an ML-like language with set-theoretic types.
 
 Answer with only the declaration line(s) for the requested definition, one per line:
 val NAME : TYPE
 No explanation and no code fences. Several val lines declare an overloaded definition: it is checked against each of them.
 
 Type syntax:
-- functions 't1 -> t2', tuples '(t1, t2)', type variables ''a', ''b'
-- union 't1 | t2', intersection 't1 & t2', negation '~t', difference 't1 \\ t2'
-- 'any', 'empty', base types 'int', 'bool', 'string', 'char', singletons such as '1', 'true', '()'
-- sequences (lists) with regular expressions: '[ int* ]', '[ 'a+ ]', '[ 'a* bool? ]', '[ int+ bool+ ]'
-- applied type definitions 't('a)', tagged values 'Node(t1, t2)'
-- an intersection of arrows is an overloaded function, e.g. '(int -> int) & (bool -> bool)'
+- functions \`t1 -> t2\`, tuples \`(t1, t2)\`, type variables \`'a\`, \`'b\`
+- union \`t1 | t2\`, intersection \`t1 & t2\`, negation \`~t\`, difference \`t1 \\ t2\`
+- \`any\`, \`empty\`, base types \`int\`, \`bool\`, \`string\`, \`char\`, singletons such as \`1\`, \`true\`, \`()\`
+- sequences (lists) with regular expressions: \`[ int* ]\`, \`[ 'a+ ]\`, \`[ 'a* bool? ]\`, \`[ int+ bool+ ]\`
+- applied type definitions \`t('a)\`, tagged values \`Node(t1, t2)\`
+- an intersection of arrows is an overloaded function, e.g. \`(int -> int) & (bool -> bool)\`
+
+MLsem is not OCaml: a list of t is \`[ t* ]\`, never \`t list\`; a type with parameters is applied as \`result('a, 'e)\`, never \`'a result\`; a pair is \`(a, b)\`, never \`a * b\`; a quote only starts a type variable, never \`'[ t* ]\`.
 
 Use the types defined in the file. Give the most sensible type given the function's actual or intended usage.`;
 
@@ -261,18 +268,58 @@ export function selectModel(context: vscode.ExtensionContext, model: LlmModel) {
 }
 
 // The type part of each `val` line of [name] in [reply]. Lines for other names
-// are ignored; if there are only such lines, all of them are taken.
+// are ignored; if there are only such lines, all of them are taken. A line
+// may be quoted in backticks, as the examples of the prompt are.
 export function parseVals(reply: string, name: string): string[] {
 	const lines = reply
 		.split("\n")
-		.map((l) => /^\s*val\s+(\([^)]*\)|[^\s:]+)\s*:\s*(.+?)\s*$/.exec(l))
+		.map((l) => /^\s*`?\s*val\s+(\([^)]*\)|[^\s:`]+)\s*:\s*(.+?)\s*`?\s*$/.exec(l))
 		.filter((m) => m !== null);
 	const own = lines.filter((m) => m[1] === name || m[1] === `(${name})`);
 	return (own.length > 0 ? own : lines).map((m) => m[2]);
 }
 
-function feedback(errors: string[]) {
-	return `MLsem rejected these types:\n${errors.map((e) => `- ${e}`).join("\n")}\n\nAnswer again with only the val line(s).`;
+// [t] with the contents of its sequences left out: inside [ ], juxtaposition
+// and * are MLsem's own (concatenation, repetition).
+function outsideSequences(t: string): string {
+	let s = t;
+	for (let prev = ""; prev !== s; ) {
+		prev = s;
+		s = s.replace(/\[[^[\]]*\]/g, "[ ]");
+	}
+	return s;
+}
+
+// One line per OCaml form in the rejected [types], saying how MLsem writes
+// it. Only said, never rewritten: the answer is the model's.
+export function syntaxHints(types: string[]): string[] {
+	const hints = new Set<string>();
+	const word = /^'?\w+$/;
+	for (const t of types) {
+		for (const m of t.matchAll(/('?\w+|\))\s+list\b/g))
+			hints.add(
+				word.test(m[1])
+					? `\`${m[1]} list\` is OCaml: in MLsem a list of ${m[1]} is \`[ ${m[1]}* ]\`.`
+					: "`t list` is OCaml: in MLsem a list of t is `[ t* ]`.",
+			);
+		const outside = outsideSequences(t);
+		for (const m of outside.matchAll(/('?\w+|\))\s+([a-z_]\w*)\b/g)) {
+			if (["list", "where", "and"].includes(m[2]) || ["where", "and"].includes(m[1])) continue;
+			hints.add(
+				word.test(m[1])
+					? `\`${m[1]} ${m[2]}\` is OCaml: in MLsem a type with parameters is applied as \`${m[2]}(${m[1]})\`.`
+					: "`t name` is OCaml: in MLsem a type with parameters is applied as `name(t)`.",
+			);
+		}
+		if (/[\w')\]]\s*\*\s*['\w([]/.test(outside)) hints.add("`a * b` is OCaml: in MLsem a pair is `(a, b)`.");
+		if (/'\s*\[/.test(t)) hints.add("A quote only starts a type variable such as `'a`: write `[ t* ]`, not `'[ t* ]`.");
+	}
+	return [...hints];
+}
+
+function feedback(errors: string[], types: string[]) {
+	const hints = syntaxHints(types);
+	return `MLsem rejected these types:\n${errors.map((e) => `- ${e}`).join("\n")}${hints.length > 0 ? `\n\n${hints.join("\n")}` : ""}\n\nAnswer again with only the val line(s).`;
 }
 
 type Outcome =
@@ -445,7 +492,7 @@ export async function inferTypeWithLlm(
 						attempts.push({ vals, result: timedOut ? "timed out" : "rejected", errors });
 					}
 					output.info(`LLM try ${tries} rejected:\n${errors.join("\n")}`);
-					conversation.tell(feedback(errors));
+					conversation.tell(feedback(errors, types));
 				}
 				return { kind: "exhausted", errors };
 			},

@@ -131,7 +131,9 @@ export function openAiErrorText(e: unknown, baseUrl: string, model: string): str
 	if (e instanceof OpenAI.APIConnectionError)
 		return `Could not reach ${baseUrl} (${causeText(e)}). Is the server running?`;
 	if (e instanceof OpenAI.APIError) {
-		const message = e.message.replace(/^\d+\s*/, "");
+		// Without the status the SDK puts first, and the final full stop
+		// some servers end with, as a sentence follows.
+		const message = e.message.replace(/^\d+\s*/, "").replace(/\.\s*$/, "");
 		if (e.status === 401 || e.status === 403)
 			return `${baseUrl} rejected the request (${e.status}: ${message}). Set its key with "MLsem: Set LLM API key", or leave the key empty for a server that needs none.`;
 		if (e.status === 404 || e.status === 400 || e.status === 503)
