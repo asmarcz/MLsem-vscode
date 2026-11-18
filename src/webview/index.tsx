@@ -1508,29 +1508,32 @@ function PartLineView({
 	const choice = (p: TypePart) => chosen[partKey(line.line, p)];
 	// The colour of a chosen part, by its order on the line.
 	const color = (i: number) => partColor(i);
-	// The text, a chosen part tinted.
-	const pieces: ComponentChildren[] = [];
+	// The chosen parts, in order. Choosing a part drops the choices that
+	// overlap it, so they do not overlap.
 	const picked = line.parts
 		.map((p, i) => ({ p, i }))
 		.filter(({ p }) => choice(p) !== undefined)
 		.sort((a, b) => a.p.start - b.p.start);
-	let at = 0;
-	for (const { p, i } of picked) {
-		pieces.push(<Code key={`t${at}`} text={line.text.slice(at, p.start)} />);
-		pieces.push(
-			<span key={`p${p.start}`} style={{ background: `color-mix(in srgb, ${color(i)} 30%, transparent)` }}>
-				<Code text={line.text.slice(p.start, p.end)} />
-			</span>,
-		);
-		at = p.end;
-	}
-	pieces.push(<Code key={`t${at}`} text={line.text.slice(at)} />);
-	// The line with the choices written, from the last part back so that
-	// the columns of the others stay right.
-	const written = picked.reduceRight(
-		(text, { p }) => text.slice(0, p.start) + choice(p) + text.slice(p.end),
-		line.text,
-	);
+	// [line]'s text with each chosen part replaced by [text p], tinted in
+	// the colour of its anchor.
+	const tinted = (text: (p: TypePart) => string) => {
+		const pieces: ComponentChildren[] = [];
+		let at = 0;
+		for (const { p, i } of picked) {
+			pieces.push(<Code key={`t${at}`} text={line.text.slice(at, p.start)} />);
+			pieces.push(
+				<span key={`p${p.start}`} style={{ background: `color-mix(in srgb, ${color(i)} 30%, transparent)` }}>
+					<Code text={text(p)} />
+				</span>,
+			);
+			at = p.end;
+		}
+		pieces.push(<Code key={`t${at}`} text={line.text.slice(at)} />);
+		return pieces;
+	};
+	// The text as it is, and with the choices written.
+	const pieces = tinted((p) => line.text.slice(p.start, p.end));
+	const written = tinted((p) => choice(p) ?? p.text);
 	return (
 		<div class="extract-line">
 			<div ref={block} class={`surface code-text extract-block${debug ? " debug-anchors" : ""}`}>
@@ -1570,11 +1573,7 @@ function PartLineView({
 				))}
 				{debug && <AnchorDebug block={block} spans={line.parts.map((p) => [p.start, p.end])} />}
 			</div>
-			{picked.length > 0 && (
-				<div class="surface code-text preview-block widen-written">
-					<Code text={written} />
-				</div>
-			)}
+			{picked.length > 0 && <div class="surface code-text preview-block widen-written">{written}</div>}
 		</div>
 	);
 }
