@@ -22,9 +22,9 @@ parts of the body whose type mentions it.
 | A `val` type | *Extract repeated parts* (as `where` definitions, or as wildcards), *Inline where definitions*. |
 | A failing call | *Add overload: …* (a partial line for the argument's type), *Widen domain: …* (an existing line's domain grown to accept the argument). |
 
-**Partial signatures.** A `val` line may contain wildcards, `_` or a named
-`'_a` (all occurrences one type). The definition is checked against the shape
-and the wildcards are inferred:
+**Wildcards in `val` lines.** A `val` line may contain wildcards, `_` or a
+named `'_a` (all occurrences one type), making it a partial signature. The
+definition is checked against the shape and the wildcards are inferred:
 
 ```
 val len : [any*] -> _
