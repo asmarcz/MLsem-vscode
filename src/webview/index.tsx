@@ -8,7 +8,6 @@ import {
 	type ExtractLine,
 	type ExtractMode,
 	type GeneralizeCheck,
-	type HoleLine,
 	type Instantiation,
 	isFromExtension,
 	type KeptValue,
@@ -28,6 +27,7 @@ import {
 	triesText,
 	type ValuePart,
 	type WebviewToExtension,
+	type WildcardLine,
 } from "../protocol";
 import { Code, TokenColors } from "./highlight";
 import css from "./styles.css";
@@ -90,11 +90,11 @@ interface AppState {
 	target: string | null;
 	// Why the overload tools have no binding, when the request failed.
 	overloadsFailure: string | null;
-	// The target's val lines with resolved holes, the holes picked for Fill,
-	// by [holeKey], and the parts of their values kept as holes, by
-	// [keptKey].
-	holes: HoleLine[];
-	selectedHoles: string[];
+	// The target's val lines with resolved wildcards, the wildcards picked
+	// for Fill, by [wildcardKey], and the parts of their values kept as
+	// wildcards, by [keptKey].
+	wildcards: WildcardLine[];
+	selectedWildcards: string[];
 	keptParts: string[];
 	extract: ExtractState;
 	// Per part tool, the target's val lines with the parts it has options
@@ -113,7 +113,7 @@ interface ExtractState {
 	lines: ExtractLine[];
 	chosen: Record<number, string[]>;
 	names: Record<string, string>;
-	previews: Record<string, { ok: boolean; text?: string; decls?: string[]; error?: string; linksHoles?: boolean }>;
+	previews: Record<string, { ok: boolean; text?: string; decls?: string[]; error?: string; linksWildcards?: boolean }>;
 	applying: boolean;
 	error: string | null;
 }
@@ -135,11 +135,20 @@ interface PartsState {
 
 const initialParts: PartsState = { lines: [], reason: null, applying: false, error: null };
 
-type SectionId = "inferred" | "holes" | "extract" | "widen" | "narrow" | "simplify" | "merge" | "instantiate" | "llm";
+type SectionId =
+	| "inferred"
+	| "partialSignatures"
+	| "extract"
+	| "widen"
+	| "narrow"
+	| "simplify"
+	| "merge"
+	| "instantiate"
+	| "llm";
 
 const SECTION_IDS: SectionId[] = [
 	"inferred",
-	"holes",
+	"partialSignatures",
 	"extract",
 	"widen",
 	"narrow",
@@ -153,9 +162,9 @@ type Action =
 	| ExtensionToWebview // "overloads", "preview" etc. are dispatched directly
 	| { type: "TOGGLE_SECTION"; id: SectionId }
 	| { type: "TOGGLE"; text: string }
-	| { type: "TOGGLE_HOLE"; line: number; row: number; start: number }
-	// Keep part [part] of the value of the hole at [start] in [row] as a
-	// hole, or fill it back.
+	| { type: "TOGGLE_WILDCARD"; line: number; row: number; start: number }
+	// Keep part [part] of the value of the wildcard at [start] in [row] as a
+	// wildcard, or fill it back.
 	| { type: "TOGGLE_KEPT"; line: number; row: number; start: number; part: ValuePart }
 	| { type: "TOGGLE_EXTRACT"; line: number; key: string }
 	| { type: "SET_EXTRACT_NAME"; line: number; key: string; name: string }
@@ -187,15 +196,15 @@ const initialState: AppState = {
 	inline: { applying: false, error: null },
 	target: null,
 	overloadsFailure: null,
-	holes: [],
-	selectedHoles: [],
+	wildcards: [],
+	selectedWildcards: [],
 	keptParts: [],
 	extract: initialExtract,
 	parts: { widen: initialParts, narrow: initialParts, simplify: initialParts },
 	tokenColors: {},
 	collapsed: {
 		inferred: false,
-		holes: false,
+		partialSignatures: false,
 		extract: false,
 		widen: false,
 		narrow: false,
@@ -346,21 +355,22 @@ function reducer(state: AppState, action: Action): AppState {
 			return { ...state, llmStatus: action.status };
 		case "target":
 			return { ...state, target: action.name };
-		case "holes": {
-			// Keep the selection of holes that are still there.
+		case "wildcards": {
+			// Keep the selection of wildcards that are still there.
 			const keys = action.lines.flatMap((l) =>
-				l.rows.flatMap((_, row) => l.holes.map((h) => holeKey(l.line, row, h.start))),
+				l.rows.flatMap((_, row) => l.wildcards.map((w) => wildcardKey(l.line, row, w.start))),
 			);
-			// And the parts kept as holes that are still parts of the same value.
+			// And the parts kept as wildcards that are still parts of the same
+			// value.
 			const kept = action.lines.flatMap((l) =>
 				l.rows.flatMap((r, row) =>
-					l.holes.flatMap((h, i) => (r.parts[i] ?? []).map((p) => keptKey(l.line, row, h.start, p))),
+					l.wildcards.flatMap((w, i) => (r.parts[i] ?? []).map((p) => keptKey(l.line, row, w.start, p))),
 				),
 			);
 			return {
 				...state,
-				holes: action.lines,
-				selectedHoles: state.selectedHoles.filter((k) => keys.includes(k)),
+				wildcards: action.lines,
+				selectedWildcards: state.selectedWildcards.filter((k) => keys.includes(k)),
 				keptParts: state.keptParts.filter((k) => kept.includes(k)),
 			};
 		}
@@ -392,31 +402,34 @@ function reducer(state: AppState, action: Action): AppState {
 		}
 		case "extractPreview": {
 			const ex = state.extract;
-			const { ok, text, decls, error, linksHoles } = action;
-			const previews = { ...ex.previews, [`${action.line}:${action.mode}`]: { ok, text, decls, error, linksHoles } };
+			const { ok, text, decls, error, linksWildcards } = action;
+			const previews = {
+				...ex.previews,
+				[`${action.line}:${action.mode}`]: { ok, text, decls, error, linksWildcards },
+			};
 			return { ...state, extract: { ...ex, previews } };
 		}
 		case "EXTRACT_APPLYING":
 			return { ...state, extract: { ...state.extract, applying: true, error: null } };
 		case "extracted":
 			return { ...state, extract: { ...state.extract, applying: false, error: action.error ?? null } };
-		case "TOGGLE_HOLE": {
-			const group = holeGroup(state.holes, action.line, action.row, action.start);
+		case "TOGGLE_WILDCARD": {
+			const group = wildcardGroup(state.wildcards, action.line, action.row, action.start);
 			if (group.length === 0) return state;
-			const on = state.selectedHoles.includes(holeKey(action.line, action.row, action.start));
-			const rest = state.selectedHoles.filter((k) => !group.includes(k));
-			return { ...state, selectedHoles: on ? rest : [...rest, ...group] };
+			const on = state.selectedWildcards.includes(wildcardKey(action.line, action.row, action.start));
+			const rest = state.selectedWildcards.filter((k) => !group.includes(k));
+			return { ...state, selectedWildcards: on ? rest : [...rest, ...group] };
 		}
 		case "TOGGLE_KEPT": {
 			const k = keptKey(action.line, action.row, action.start, action.part);
 			if (state.keptParts.includes(k)) return { ...state, keptParts: state.keptParts.filter((x) => x !== k) };
-			// Keeping a part is filling the rest of the value: its hole is
+			// Keeping a part is filling the rest of the value: its wildcard is
 			// selected for Fill.
-			const group = holeGroup(state.holes, action.line, action.row, action.start);
-			const selected = state.selectedHoles.includes(holeKey(action.line, action.row, action.start))
-				? state.selectedHoles
-				: [...state.selectedHoles.filter((x) => !group.includes(x)), ...group];
-			return { ...state, keptParts: [...state.keptParts, k], selectedHoles: selected };
+			const group = wildcardGroup(state.wildcards, action.line, action.row, action.start);
+			const selected = state.selectedWildcards.includes(wildcardKey(action.line, action.row, action.start))
+				? state.selectedWildcards
+				: [...state.selectedWildcards.filter((x) => !group.includes(x)), ...group];
+			return { ...state, keptParts: [...state.keptParts, k], selectedWildcards: selected };
 		}
 		case "TOGGLE": {
 			const t = action.text;
@@ -1016,41 +1029,42 @@ function InstantiateTool({ state, dispatch }: { state: AppState; dispatch: (a: A
 	);
 }
 
-// Identifies a hole across refreshes: its line, row of values and start
+// Identifies a wildcard across refreshes: its line, row of values and start
 // character.
-function holeKey(line: number, row: number, start: number) {
+function wildcardKey(line: number, row: number, start: number) {
 	return `${line}:${row}:${start}`;
 }
 
-// The keys of the hole at [start] of [line] in [row] and of the holes
-// picked with it: a named hole ('_a) is one variable, its occurrences on
-// the line are picked together, within the row. Empty when it is gone.
-function holeGroup(holes: HoleLine[], line: number, row: number, start: number): string[] {
-	const l = holes.find((x) => x.line === line);
-	const hole = l?.holes.find((h) => h.start === start);
-	if (!l || !hole) return [];
-	return l.holes
-		.filter((h) => h.start === hole.start || (hole.hole !== "_" && h.hole === hole.hole))
-		.map((h) => holeKey(line, row, h.start));
+// The keys of the wildcard at [start] of [line] in [row] and of the
+// wildcards picked with it: a named wildcard ('_a) is one variable, its
+// occurrences on the line are picked together, within the row. Empty when
+// it is gone.
+function wildcardGroup(wildcards: WildcardLine[], line: number, row: number, start: number): string[] {
+	const l = wildcards.find((x) => x.line === line);
+	const wildcard = l?.wildcards.find((w) => w.start === start);
+	if (!l || !wildcard) return [];
+	return l.wildcards
+		.filter((w) => w.start === wildcard.start || (wildcard.wildcard !== "_" && w.wildcard === wildcard.wildcard))
+		.map((w) => wildcardKey(line, row, w.start));
 }
 
-// Identifies a part of a hole's value kept as a hole: its hole's key, and
-// its place and text in the value.
+// Identifies a part of a wildcard's value kept as a wildcard: its
+// wildcard's key, and its place and text in the value.
 function keptKey(line: number, row: number, start: number, p: ValuePart) {
-	return `${holeKey(line, row, start)}:${p.start}:${p.end}:${p.text}`;
+	return `${wildcardKey(line, row, start)}:${p.start}:${p.end}:${p.text}`;
 }
 
-// The parts of the value of hole [i] of [line] in [row] kept as holes,
-// without those inside another: they go with it.
-function keptOf(line: HoleLine, row: number, i: number, kept: string[]): ValuePart[] {
-	const start = line.holes[i].start;
+// The parts of the value of wildcard [i] of [line] in [row] kept as
+// wildcards, without those inside another: they go with it.
+function keptOf(line: WildcardLine, row: number, i: number, kept: string[]): ValuePart[] {
+	const start = line.wildcards[i].start;
 	const marked = (line.rows[row]?.parts[i] ?? []).filter((p) => kept.includes(keptKey(line.line, row, start, p)));
 	return marked.filter((p) => !marked.some((q) => q !== p && q.start <= p.start && p.end <= q.end));
 }
 
-// The value of hole [i] of [line] in [row], its kept parts written [_]:
+// The value of wildcard [i] of [line] in [row], its kept parts written [_]:
 // from the last, so that the earlier positions still hold.
-function keptValue(line: HoleLine, row: number, i: number, kept: string[]): string | null {
+function keptValue(line: WildcardLine, row: number, i: number, kept: string[]): string | null {
 	const value = line.rows[row]?.values[i] ?? null;
 	if (value === null) return null;
 	return keptOf(line, row, i, kept)
@@ -1058,27 +1072,27 @@ function keptValue(line: HoleLine, row: number, i: number, kept: string[]): stri
 		.reduce((text, p) => `${text.slice(0, p.start)}_${text.slice(p.end)}`, value);
 }
 
-// The values with parts kept as holes, for Fill, Fill all and Split.
-function keptValues(holes: HoleLine[], kept: string[]): KeptValue[] {
-	return holes.flatMap((l) =>
+// The values with parts kept as wildcards, for Fill, Fill all and Split.
+function keptValues(wildcards: WildcardLine[], kept: string[]): KeptValue[] {
+	return wildcards.flatMap((l) =>
 		l.rows.flatMap((r, row) =>
-			l.holes.flatMap((h, i) => {
+			l.wildcards.flatMap((w, i) => {
 				const value = keptValue(l, row, i, kept);
-				return value !== null && value !== r.values[i] ? [{ line: l.line, row, start: h.start, value }] : [];
+				return value !== null && value !== r.values[i] ? [{ line: l.line, row, start: w.start, value }] : [];
 			}),
 		),
 	);
 }
 
-// The index of part [j] of the value of hole [i] among the parts of the
+// The index of part [j] of the value of wildcard [i] among the parts of the
 // values of [row], for its colour.
-function rowPartIndex(line: HoleLine, row: number, i: number, j: number): number {
+function rowPartIndex(line: WildcardLine, row: number, i: number, j: number): number {
 	return line.rows[row].parts.slice(0, i).reduce((n, ps) => n + ps.length, 0) + j;
 }
 
-// The value of hole [i] of [line] in [row], its parts kept as holes tinted
-// in their colours.
-function ValueText({ line, row, i, kept }: { line: HoleLine; row: number; i: number; kept: string[] }) {
+// The value of wildcard [i] of [line] in [row], its parts kept as wildcards
+// tinted in their colours.
+function ValueText({ line, row, i, kept }: { line: WildcardLine; row: number; i: number; kept: string[] }) {
 	const value = line.rows[row].values[i] ?? "";
 	const all = line.rows[row].parts[i] ?? [];
 	const pieces: ComponentChildren[] = [];
@@ -1097,62 +1111,63 @@ function ValueText({ line, row, i, kept }: { line: HoleLine; row: number; i: num
 	return <>{pieces}</>;
 }
 
-// A val line with its holes marked: as written ([row] undefined), or with
-// the values of a row in their place, their parts kept as holes tinted. A
-// hole is a toggle, selected holes being the ones Fill writes: in a row, or
-// as written when the line has a single row. A hole a row has no value for
-// stays as written. In a row, a hole takes no more room than its text, so
-// that the anchors under the row line up with it.
-function HoleText({
+// A val line with its wildcards marked: as written ([row] undefined), or
+// with the values of a row in their place, their parts kept as wildcards
+// tinted. A wildcard is a toggle, selected wildcards being the ones Fill
+// writes: in a row, or as written when the line has a single row. A
+// wildcard a row has no value for stays as written. In a row, a wildcard
+// takes no more room than its text, so that the anchors under the row line
+// up with it.
+function WildcardText({
 	line,
 	row,
 	selected,
 	kept,
 	dispatch,
 }: {
-	line: HoleLine;
+	line: WildcardLine;
 	row?: number;
 	selected: string[];
 	kept: string[];
 	dispatch: (a: Action) => void;
 }) {
 	const toggles = row ?? (line.rows.length === 1 ? 0 : undefined);
-	const flush = row === undefined ? "" : " hole-flush";
+	const flush = row === undefined ? "" : " wildcard-flush";
 	const parts: ComponentChildren[] = [];
 	let at = 0;
-	// The text around holes ends at a hole, so highlighting it piece by piece
-	// splits no token.
-	line.holes.forEach((h, i) => {
-		parts.push(<Code key={`t${at}`} text={line.text.slice(at, h.start)} />);
-		const written = line.text.slice(h.start, h.end);
+	// The text around wildcards ends at a wildcard, so highlighting it piece
+	// by piece splits no token.
+	line.wildcards.forEach((w, i) => {
+		parts.push(<Code key={`t${at}`} text={line.text.slice(at, w.start)} />);
+		const written = line.text.slice(w.start, w.end);
 		const value = row === undefined ? null : line.rows[row].values[i];
 		if (toggles === undefined || (row !== undefined && value === null)) {
 			parts.push(
 				<span
-					key={h.start}
-					class={row === undefined ? "hole" : `hole hole-none${flush}`}
+					key={w.start}
+					class={row === undefined ? "wildcard" : `wildcard wildcard-none${flush}`}
 					title={row === undefined ? undefined : "No value for this overload"}
 				>
 					<Code text={written} />
 				</span>,
 			);
 		} else {
-			const on = selected.includes(holeKey(line.line, toggles, h.start));
+			const on = selected.includes(wildcardKey(line.line, toggles, w.start));
 			const shown = keptValue(line, toggles, i, kept);
 			parts.push(
 				<button
-					key={h.start}
+					key={w.start}
 					type="button"
-					class={`hole${row !== undefined ? " hole-filled" : ""}${flush}${on ? " hole-selected" : ""}`}
+					class={`wildcard${row !== undefined ? " wildcard-filled" : ""}${flush}${on ? " wildcard-selected" : ""}`}
 					aria-pressed={on}
-					title={`${h.hole} = ${shown}`}
-					onClick={() => dispatch({ type: "TOGGLE_HOLE", line: line.line, row: toggles, start: h.start })}
+					title={`${w.wildcard} = ${shown}`}
+					onClick={() => dispatch({ type: "TOGGLE_WILDCARD", line: line.line, row: toggles, start: w.start })}
 				>
 					{row === undefined ? <Code text={written} /> : <ValueText line={line} row={row} i={i} kept={kept} />}
 				</button>,
 			);
 		}
-		at = h.end;
+		at = w.end;
 	});
 	parts.push(<Code key={`t${at}`} text={line.text.slice(at)} />);
 	return <>{parts}</>;
@@ -1239,7 +1254,7 @@ function TypeSelect({
 	}
 
 	// With [free], an option with [_] arguments ([tree(_)]) is a template:
-	// picked as it is, its [_] holes; or edited (its row's edit button, or →
+	// picked as it is, its [_] wildcards; or edited (its row's edit button, or →
 	// on it): it goes into the field, its first [_] selected, for the
 	// arguments to be typed.
 	const isTemplate = (o: string) => free === true && /\(([^()]*[,\s])?_([,\s][^()]*)?\)/.test(o);
@@ -1643,63 +1658,69 @@ function PartsTool({ tool, state, dispatch }: { tool: PartTool; state: AppState;
 	);
 }
 
-// A row of a draft val line: the line filled from it, and under it, as in
-// Widen, an anchor per part of its values that may be kept as a hole,
+// A row of a partial val line: the line filled from it, and under it, as in
+// Widen, an anchor per part of its values that may be kept as a wildcard,
 // innermost nearest the text; an anchor toggles its part between its text
 // and [_]. A part inside one kept goes with it. Under the block, the line
 // as Fill writes it, when a part is kept.
-function HoleRowView({
+function WildcardRowView({
 	line,
 	row,
 	state,
 	dispatch,
 }: {
-	line: HoleLine;
+	line: WildcardLine;
 	row: number;
 	state: AppState;
 	dispatch: (a: Action) => void;
 }) {
 	const r = line.rows[row];
 	// Each part, at its columns in the filled line: a value moves the text
-	// after its hole by how much longer it is than the hole.
-	const anchors: { start: number; end: number; part: ValuePart; hole: number; index: number }[] = [];
+	// after its wildcard by how much longer it is than the wildcard.
+	const anchors: { start: number; end: number; part: ValuePart; wildcard: number; index: number }[] = [];
 	let shift = 0;
-	line.holes.forEach((h, i) => {
+	line.wildcards.forEach((w, i) => {
 		const value = r.values[i];
 		if (value === null) return;
 		(r.parts[i] ?? []).forEach((p, j) => {
 			anchors.push({
-				start: h.start + shift + p.start,
-				end: h.start + shift + p.end,
+				start: w.start + shift + p.start,
+				end: w.start + shift + p.end,
 				part: p,
-				hole: i,
+				wildcard: i,
 				index: rowPartIndex(line, row, i, j),
 			});
 		});
-		shift += value.length - (h.end - h.start);
+		shift += value.length - (w.end - w.start);
 	});
 	const width = line.text.length + shift;
 	const heights = partHeights(anchors);
 	const tracks = Math.max(-1, ...heights) + 1;
 	const isKept = (a: (typeof anchors)[number]) =>
-		state.keptParts.includes(keptKey(line.line, row, line.holes[a.hole].start, a.part));
-	const outer = line.holes.map((_, i) => keptOf(line, row, i, state.keptParts));
-	// Inside a part kept as a hole: it goes with it.
+		state.keptParts.includes(keptKey(line.line, row, line.wildcards[a.wildcard].start, a.part));
+	const outer = line.wildcards.map((_, i) => keptOf(line, row, i, state.keptParts));
+	// Inside a part kept as a wildcard: it goes with it.
 	const covered = (a: (typeof anchors)[number]) =>
-		outer[a.hole].some((q) => q !== a.part && q.start <= a.part.start && a.part.end <= q.end);
-	const written = line.holes.reduceRight(
-		(text, h, i) =>
-			text.slice(0, h.start) +
-			(keptValue(line, row, i, state.keptParts) ?? text.slice(h.start, h.end)) +
-			text.slice(h.end),
+		outer[a.wildcard].some((q) => q !== a.part && q.start <= a.part.start && a.part.end <= q.end);
+	const written = line.wildcards.reduceRight(
+		(text, w, i) =>
+			text.slice(0, w.start) +
+			(keptValue(line, row, i, state.keptParts) ?? text.slice(w.start, w.end)) +
+			text.slice(w.end),
 		line.text,
 	);
 	const someKept = outer.some((ps) => ps.length > 0);
 	return (
-		<div class="hole-row-text">
+		<div class="wildcard-row-text">
 			<div class="surface code-text preview-block extract-block">
 				<div class="extract-text">
-					<HoleText line={line} row={row} selected={state.selectedHoles} kept={state.keptParts} dispatch={dispatch} />
+					<WildcardText
+						line={line}
+						row={row}
+						selected={state.selectedWildcards}
+						kept={state.keptParts}
+						dispatch={dispatch}
+					/>
 				</div>
 				{Array.from({ length: tracks }, (_, t) => (
 					// Keyed by height: tracks are the levels of nesting.
@@ -1710,7 +1731,7 @@ function HoleRowView({
 							const inside = covered(a);
 							return (
 								<button
-									key={`${a.hole}:${a.part.start}:${a.part.end}`}
+									key={`${a.wildcard}:${a.part.start}:${a.part.end}`}
 									type="button"
 									class={`widen-anchor${on && !inside ? " chosen" : ""}`}
 									style={{ left: `${a.start}ch`, width: `${a.end - a.start}ch` }}
@@ -1718,17 +1739,17 @@ function HoleRowView({
 									disabled={inside}
 									title={
 										inside
-											? `${a.part.text}: inside a part kept as a hole`
+											? `${a.part.text}: inside a part kept as a wildcard`
 											: on
 												? `Fill ${a.part.text} back`
-												: `Keep ${a.part.text} as a hole _`
+												: `Keep ${a.part.text} as a wildcard _`
 									}
 									onClick={() =>
 										dispatch({
 											type: "TOGGLE_KEPT",
 											line: line.line,
 											row,
-											start: line.holes[a.hole].start,
+											start: line.wildcards[a.wildcard].start,
 											part: a.part,
 										})
 									}
@@ -1756,56 +1777,56 @@ function HoleRowView({
 	);
 }
 
-// The draft val lines of the target: each as written, then filled in, once,
-// or once per overload of its result when they disagree on its holes. Fill
-// writes a row's selected holes, and is disabled until one is selected; a
-// line with several rows has Split, which writes it as one line per row;
-// Fill all fills the lines with one row and splits the others. Each writes
-// a value with the parts kept as holes written [_].
-function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
-	const kept = keptValues(state.holes, state.keptParts);
-	const fill = (holes?: { line: number; row: number; start: number }[]) =>
-		vscodeApi.postMessage({ type: "fillHoles", holes, kept });
-	const several = state.holes.some((l) => l.rows.length > 1);
+// The partial val lines of the target: each as written, then filled in,
+// once, or once per overload of its result when they disagree on its
+// wildcards. Fill writes a row's selected wildcards, and is disabled until
+// one is selected; a line with several rows has Split, which writes it as
+// one line per row; Fill all fills the lines with one row and splits the
+// others. Each writes a value with the parts kept as wildcards written [_].
+function PartialSignaturesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action) => void }) {
+	const kept = keptValues(state.wildcards, state.keptParts);
+	const fill = (wildcards?: { line: number; row: number; start: number }[]) =>
+		vscodeApi.postMessage({ type: "fillWildcards", wildcards, kept });
+	const several = state.wildcards.some((l) => l.rows.length > 1);
 	return (
 		<>
 			<p class="note tool-subtitle">
-				The types the holes of the draft signature were resolved to. Click holes to fill only those. Click under a part
-				of a type to keep it as a hole.
+				The types the wildcards of the partial signature were resolved to. Click wildcards to fill only those. Click
+				under a part of a type to keep it as a wildcard.
 			</p>
-			{state.holes.map((l) => (
-				<div key={l.line} class="hole-line">
-					<div class="hole-filled-row">
+			{state.wildcards.map((l) => (
+				<div key={l.line} class="wildcard-line">
+					<div class="wildcard-filled-row">
 						<div class="surface code-text preview-block">
-							<HoleText line={l} selected={state.selectedHoles} kept={state.keptParts} dispatch={dispatch} />
+							<WildcardText line={l} selected={state.selectedWildcards} kept={state.keptParts} dispatch={dispatch} />
 						</div>
 						{l.rows.length > 1 && (
 							<button
 								class="btn btn-secondary"
 								type="button"
 								title="Write this line as one val line per row below, which keeps every case"
-								onClick={() => vscodeApi.postMessage({ type: "splitHoles", line: l.line, kept })}
+								onClick={() => vscodeApi.postMessage({ type: "splitWildcards", line: l.line, kept })}
 							>
 								Split
 							</button>
 						)}
 					</div>
 					{l.rows.map((_, row) => {
-						const picked = l.holes
-							.filter((h) => state.selectedHoles.includes(holeKey(l.line, row, h.start)))
-							.map((h) => ({ line: l.line, row, start: h.start }));
+						const picked = l.wildcards
+							.filter((w) => state.selectedWildcards.includes(wildcardKey(l.line, row, w.start)))
+							.map((w) => ({ line: l.line, row, start: w.start }));
 						// Keyed by position: rows are the overloads, in order.
 						return (
-							<div key={row} class="hole-row">
-								<div class="hole-filled-row">
-									<HoleRowView line={l} row={row} state={state} dispatch={dispatch} />
+							<div key={row} class="wildcard-row">
+								<div class="wildcard-filled-row">
+									<WildcardRowView line={l} row={row} state={state} dispatch={dispatch} />
 									<button
 										class="btn btn-secondary"
 										type="button"
 										title={
 											picked.length > 0
-												? "Write the selected holes of this row"
-												: "Select holes of this row to fill them"
+												? "Write the selected wildcards of this row"
+												: "Select wildcards of this row to fill them"
 										}
 										disabled={picked.length === 0}
 										onClick={() => fill(picked)}
@@ -1824,8 +1845,8 @@ function HolesTool({ state, dispatch }: { state: AppState; dispatch: (a: Action)
 					type="button"
 					title={
 						several
-							? "Write every hole: a line with one row is filled from it, a line with several is split into one line per row"
-							: "Write every hole of the signature"
+							? "Write every wildcard: a line with one row is filled from it, a line with several is split into one line per row"
+							: "Write every wildcard of the signature"
 					}
 					onClick={() => fill()}
 				>
@@ -1917,7 +1938,7 @@ function ExtractLineView({
 									class="anchor-track"
 									style={{ width: cols }}
 									aria-pressed={on}
-									title={`${on ? "Click to leave out" : "Click to extract"}: ${g.key}${g.holes > 0 ? " (has holes)" : ""}${g.global ? " (as a top-level type)" : ""}`}
+									title={`${on ? "Click to leave out" : "Click to extract"}: ${g.key}${g.wildcards > 0 ? " (has wildcards)" : ""}${g.global ? " (as a top-level type)" : ""}`}
 									onClick={toggle}
 									onMouseEnter={() => setHovered(g.key)}
 									onMouseLeave={() => setHovered(null)}
@@ -1976,25 +1997,25 @@ function extractChoices(ex: ExtractState, line: number): ExtractChoice[] {
 }
 
 // Lines with chosen parts, and the modes worth previewing for each: the
-// parameter mode only differs when a chosen part has holes.
+// parameter mode only differs when a chosen part has wildcards.
 function extractModes(ex: ExtractState): { line: number; modes: ExtractMode[] }[] {
 	return ex.lines.flatMap((l, i) => {
 		const chosen = ex.chosen[i] ?? [];
 		if (chosen.length === 0) return [];
-		const holes = l.groups.some((g) => chosen.includes(g.key) && g.holes > 0);
-		return [{ line: i, modes: holes ? (["plain", "params"] as ExtractMode[]) : (["plain"] as ExtractMode[]) }];
+		const wildcards = l.groups.some((g) => chosen.includes(g.key) && g.wildcards > 0);
+		return [{ line: i, modes: wildcards ? (["plain", "params"] as ExtractMode[]) : (["plain"] as ExtractMode[]) }];
 	});
 }
 
 const MODE_TITLES: Record<ExtractMode, { title: string; hint: string; button: string }> = {
 	plain: {
-		title: "Shared holes",
-		hint: "Extract the parts as they are: all copies of a part with holes share them.",
+		title: "Shared wildcards",
+		hint: "Extract the parts as they are: all copies of a part with wildcards share them.",
 		button: "Extract",
 	},
 	params: {
-		title: "Separate holes",
-		hint: "Extract each hole as a parameter: every copy keeps its own holes, and the type its meaning.",
+		title: "Separate wildcards",
+		hint: "Extract each wildcard as a parameter: every copy keeps its own wildcards, and the type its meaning.",
 		button: "Extract",
 	},
 };
@@ -2055,7 +2076,9 @@ function ExtractTool({ state, dispatch }: { state: AppState; dispatch: (a: Actio
 												</div>
 											))}
 										{p?.ok && p.text !== undefined ? <Code text={p.text} /> : "Loading preview…"}
-										{p?.linksHoles && <p class="note precision-stronger">The copies of a part share its holes.</p>}
+										{p?.linksWildcards && (
+											<p class="note precision-stronger">The copies of a part share its wildcards.</p>
+										)}
 									</div>
 								</div>
 							);
@@ -2430,13 +2453,13 @@ function App() {
 					<InferredTool state={state} dispatch={dispatch} />
 				</Section>
 				<Section
-					id="holes"
-					title="Draft holes"
+					id="partialSignatures"
+					title="Partial signatures"
 					state={state}
 					dispatch={dispatch}
-					unavailable={noTarget ?? (state.holes.length > 0 ? undefined : "no holes")}
+					unavailable={noTarget ?? (state.wildcards.length > 0 ? undefined : "no wildcards")}
 				>
-					<HolesTool state={state} dispatch={dispatch} />
+					<PartialSignaturesTool state={state} dispatch={dispatch} />
 				</Section>
 				<Section
 					id="extract"

@@ -18,11 +18,11 @@ import type {
 	ExtractChoice,
 	ExtractLine,
 	ExtractMode,
-	HoleLine,
 	KeptValue,
 	PartLine,
 	PartTool,
 	WebviewToExtension,
+	WildcardLine,
 } from "./protocol";
 import type {
 	CheckSignatureResult,
@@ -31,7 +31,6 @@ import type {
 	ExtractApplyResult,
 	ExtractGroupsResult,
 	GeneralizePreviewResult,
-	HolesResult,
 	InstantiatePreviewResult,
 	MergePreviewResult,
 	NarrowCheckResult,
@@ -40,6 +39,7 @@ import type {
 	PartsResult,
 	RawInstances,
 	SubtractResult,
+	WildcardsResult,
 } from "./serverProtocol";
 import { tokenColors } from "./themeColors";
 
@@ -220,14 +220,14 @@ async function checkTypes(uri: vscode.Uri, position: vscode.Position, types: str
 	}
 }
 
-// The resolved holes of the val lines of the definition at [position],
-// grouped by line. A hole spanning lines is left out: the view shows one
+// The resolved wildcards of the val lines of the definition at [position],
+// grouped by line. A wildcard spanning lines is left out: the view shows one
 // line at a time.
-async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<HoleLine[]> {
+async function fetchWildcards(uri: vscode.Uri, position: vscode.Position): Promise<WildcardLine[]> {
 	if (!client) return [];
-	let result: HolesResult;
+	let result: WildcardsResult;
 	try {
-		result = await client.sendRequest<HolesResult>("mlsem/holes", {
+		result = await client.sendRequest<WildcardsResult>("mlsem/wildcards", {
 			textDocument: { uri: uri.toString() },
 			position: { line: position.line, character: position.character },
 			text: textOf(uri),
@@ -235,21 +235,21 @@ async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<H
 	} catch {
 		return [];
 	}
-	type Raw = NonNullable<HolesResult["holes"]>[number];
-	const byLine = new Map<number, { text: string; holes: Raw[] }>();
-	for (const h of result.holes ?? []) {
-		const line = h.range.start.line;
-		if (h.range.end.line !== line) continue;
-		const entry = byLine.get(line) ?? { text: h.lineText, holes: [] };
-		entry.holes.push(h);
+	type Raw = NonNullable<WildcardsResult["wildcards"]>[number];
+	const byLine = new Map<number, { text: string; wildcards: Raw[] }>();
+	for (const w of result.wildcards ?? []) {
+		const line = w.range.start.line;
+		if (w.range.end.line !== line) continue;
+		const entry = byLine.get(line) ?? { text: w.lineText, wildcards: [] };
+		entry.wildcards.push(w);
 		byLine.set(line, entry);
 	}
-	// A line's rows: one per overload of its result if a hole has values per
-	// overload, a hole with a single value repeating it in each.
-	return [...byLine.entries()].map(([line, { text, holes }]) => {
-		const widest = holes.reduce((a, h) => (h.rows.length > a.rows.length ? h : a), holes[0]);
+	// A line's rows: one per overload of its result if a wildcard has values
+	// per overload, a wildcard with a single value repeating it in each.
+	return [...byLine.entries()].map(([line, { text, wildcards }]) => {
+		const widest = wildcards.reduce((a, w) => (w.rows.length > a.rows.length ? w : a), wildcards[0]);
 		const rows = widest.rows.map((r, k) => {
-			const of = holes.map((h) => (h.rows.length === widest.rows.length ? h.rows[k] : h.rows[0]));
+			const of = wildcards.map((w) => (w.rows.length === widest.rows.length ? w.rows[k] : w.rows[0]));
 			return {
 				overload: r.overload ?? undefined,
 				values: of.map((x) => x?.value ?? null),
@@ -259,7 +259,11 @@ async function fetchHoles(uri: vscode.Uri, position: vscode.Position): Promise<H
 		return {
 			line,
 			text,
-			holes: holes.map((h) => ({ start: h.range.start.character, end: h.range.end.character, hole: h.hole })),
+			wildcards: wildcards.map((w) => ({
+				start: w.range.start.character,
+				end: w.range.end.character,
+				wildcard: w.wildcard,
+			})),
 			rows,
 		};
 	});
@@ -304,24 +308,24 @@ async function extractApply(
 	}
 }
 
-// The holes last posted to the panel, which "fillHoles" replaces.
-let currentHoles: HoleLine[] = [];
+// The wildcards last posted to the panel, which "fillWildcards" replaces.
+let currentWildcards: WildcardLine[] = [];
 
-// The value of hole [i] of line [l] in row [row]: the one in [kept], with
-// parts kept as holes, else the row's.
-function holeValue(l: HoleLine, row: number, i: number, kept: KeptValue[]): string | null {
-	const k = kept.find((x) => x.line === l.line && x.row === row && x.start === l.holes[i].start);
+// The value of wildcard [i] of line [l] in row [row]: the one in [kept],
+// with parts kept as wildcards, else the row's.
+function wildcardValue(l: WildcardLine, row: number, i: number, kept: KeptValue[]): string | null {
+	const k = kept.find((x) => x.line === l.line && x.row === row && x.start === l.wildcards[i].start);
 	return k ? k.value : (l.rows[row]?.values[i] ?? null);
 }
 
-// Replace val line [l] by one line per row, its holes filled from that row:
-// replaced from the last, so that the earlier positions still hold. A hole
-// the row has no value for stays as written.
-function splitLine(we: vscode.WorkspaceEdit, uri: vscode.Uri, l: HoleLine, kept: KeptValue[]): void {
+// Replace val line [l] by one line per row, its wildcards filled from that
+// row: replaced from the last, so that the earlier positions still hold. A
+// wildcard the row has no value for stays as written.
+function splitLine(we: vscode.WorkspaceEdit, uri: vscode.Uri, l: WildcardLine, kept: KeptValue[]): void {
 	const lines = l.rows.map((_, row) =>
-		l.holes.reduceRight(
-			(text, h, i) =>
-				text.slice(0, h.start) + (holeValue(l, row, i, kept) ?? text.slice(h.start, h.end)) + text.slice(h.end),
+		l.wildcards.reduceRight(
+			(text, w, i) =>
+				text.slice(0, w.start) + (wildcardValue(l, row, i, kept) ?? text.slice(w.start, w.end)) + text.slice(w.end),
 			l.text,
 		),
 	);
@@ -379,7 +383,7 @@ async function checkNarrow(
 // used for explicit (re)opens and refreshes, where "nothing here" is useful
 // feedback. What needs only the parse and the declarations comes first; then
 // what needs the document's typecheck, which may take until it times out:
-// the holes, Narrow (which checks each narrower type), and the extras of a
+// the wildcards, Narrow (which checks each narrower type), and the extras of a
 // declared binding's overloads.
 async function refreshCurrent(): Promise<void> {
 	if (!panel || !currentUri || !currentPosition) return;
@@ -389,15 +393,15 @@ async function refreshCurrent(): Promise<void> {
 	panel?.webview.postMessage({ type: "target", name: name ?? null });
 	panel?.webview.postMessage({ type: "extractGroups", lines: name ? await fetchExtractGroups(uri, position) : [] });
 	// From the declarations for a declared binding; from the typecheck for an
-	// inferred one or one with a draft line.
+	// inferred one or one with a partial line.
 	const overloads = await fetchOverloads(uri, position);
 	if (overloads) postOverloads(overloads);
 	for (const tool of ["widen", "simplify"] as const) {
 		const { lines, reason } = name ? await fetchParts(tool, uri, position) : { lines: [] };
 		panel?.webview.postMessage({ type: "parts", tool, lines, reason });
 	}
-	currentHoles = name ? await fetchHoles(uri, position) : [];
-	panel?.webview.postMessage({ type: "holes", lines: currentHoles });
+	currentWildcards = name ? await fetchWildcards(uri, position) : [];
+	panel?.webview.postMessage({ type: "wildcards", lines: currentWildcards });
 	const narrow = name ? await fetchParts("narrow", uri, position) : { lines: [] };
 	panel?.webview.postMessage({ type: "parts", tool: "narrow", ...narrow });
 	if (overloads && !("failed" in overloads) && overloads.found && overloads.callInstances === undefined) {
@@ -577,34 +581,35 @@ export function openTypeToolkit(
 				? await applyEditResult({ ok: true, uri: uri.toString(), edits: [check.edit] })
 				: (check.error ?? check.errors?.join("\n") ?? "Could not write the inferred type.");
 			panel?.webview.postMessage({ type: "inlined", error });
-		} else if (message.type === "fillHoles") {
+		} else if (message.type === "fillWildcards") {
 			const uri = currentUri;
 			if (!uri) return;
 			const we = new vscode.WorkspaceEdit();
-			if (message.holes === undefined) {
+			if (message.wildcards === undefined) {
 				// Filling all: a line with one row is filled from it, one with
 				// several is split.
-				for (const l of currentHoles) {
+				for (const l of currentWildcards) {
 					if (l.rows.length > 1) splitLine(we, uri, l, message.kept);
 					else
-						l.holes.forEach((h, i) => {
-							const value = holeValue(l, 0, i, message.kept);
-							if (value) we.replace(uri, new vscode.Range(l.line, h.start, l.line, h.end), value);
+						l.wildcards.forEach((w, i) => {
+							const value = wildcardValue(l, 0, i, message.kept);
+							if (value) we.replace(uri, new vscode.Range(l.line, w.start, l.line, w.end), value);
 						});
 				}
 			} else {
-				for (const h of message.holes) {
-					const l = currentHoles.find((x) => x.line === h.line);
-					const i = l?.holes.findIndex((x) => x.start === h.start) ?? -1;
-					const value = l && i >= 0 ? holeValue(l, h.row, i, message.kept) : null;
-					if (l && value) we.replace(uri, new vscode.Range(l.line, l.holes[i].start, l.line, l.holes[i].end), value);
+				for (const w of message.wildcards) {
+					const l = currentWildcards.find((x) => x.line === w.line);
+					const i = l?.wildcards.findIndex((x) => x.start === w.start) ?? -1;
+					const value = l && i >= 0 ? wildcardValue(l, w.row, i, message.kept) : null;
+					if (l && value)
+						we.replace(uri, new vscode.Range(l.line, l.wildcards[i].start, l.line, l.wildcards[i].end), value);
 				}
 			}
 			await vscode.workspace.applyEdit(we);
 			await refreshCurrent();
-		} else if (message.type === "splitHoles") {
+		} else if (message.type === "splitWildcards") {
 			const uri = currentUri;
-			const l = currentHoles.find((x) => x.line === message.line);
+			const l = currentWildcards.find((x) => x.line === message.line);
 			if (!uri || !l) return;
 			const we = new vscode.WorkspaceEdit();
 			splitLine(we, uri, l, message.kept);
@@ -621,7 +626,7 @@ export function openTypeToolkit(
 				text: r.text,
 				decls: r.decls,
 				error: r.error,
-				linksHoles: r.linksHoles,
+				linksWildcards: r.linksWildcards,
 			});
 		} else if (message.type === "applyExtract") {
 			const uri = currentUri;

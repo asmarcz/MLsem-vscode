@@ -648,59 +648,59 @@ body {
 	font-family: var(--vscode-font-family);
 }
 
-/* --- Draft holes ---
+/* --- Partial signatures ---
    Each val line as written, then filled in with a Fill button beside it. A
-   hole and the type that replaces it are marked alike. */
-.hole-line {
+   wildcard and the type that replaces it are marked alike. */
+.wildcard-line {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
 	margin-bottom: 10px;
 }
 
-/* The inferred val lines, spaced from the button under them like a hole line. */
+/* The inferred val lines, spaced from the button under them like a wildcard line. */
 .inferred-lines {
 	margin-bottom: 10px;
 }
 
-.hole-line > .preview-block {
+.wildcard-line > .preview-block {
 	border-color: var(--tk-border);
 }
 
-.hole-filled-row {
+.wildcard-filled-row {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 }
 
 /* A row of values: its filled line. */
-.hole-row {
+.wildcard-row {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 }
 
-/* A hole the row's overload gives no value: left as written. */
-.hole-none {
+/* A wildcard the row's overload gives no value: left as written. */
+.wildcard-none {
 	opacity: var(--tk-dim);
 	background: none;
 	border: 1px dashed var(--tk-border);
 	cursor: default;
 }
 
-.hole-filled-row > .preview-block {
+.wildcard-filled-row > .preview-block {
 	flex: 1;
 	min-width: 0;
 }
 
 /* Split and Fill one width, so that the lines line up. */
-.hole-filled-row > .btn {
+.wildcard-filled-row > .btn {
 	min-width: 4.5em;
 }
 
-/* A hole is a toggle inside the code text: a button reset to look like the
-   text around it. Selected holes get a solid outline in both lines. */
-.hole {
+/* A wildcard is a toggle inside the code text: a button reset to look like
+   the text around it. Selected wildcards get a solid outline in both lines. */
+.wildcard {
 	margin: 0;
 	padding: 0 2px;
 	border: 1px solid transparent;
@@ -711,47 +711,47 @@ body {
 	cursor: pointer;
 }
 
-.hole-filled {
+.wildcard-filled {
 	background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent);
 }
 
 /* A row's filled line, with the anchors of the parts of its values under
    it and the line as Fill writes it under that. */
-.hole-filled-row > .hole-row-text {
+.wildcard-filled-row > .wildcard-row-text {
 	flex: 1;
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
 }
 
-/* A hole in a row takes no more room than its text, so that the anchors
+/* A wildcard in a row takes no more room than its text, so that the anchors
    under the row line up with it: an outline, not a border, marks it. */
-.hole.hole-flush {
+.wildcard.wildcard-flush {
 	padding: 0;
 	border: none;
 }
 
-.hole-flush.hole-none {
+.wildcard-flush.wildcard-none {
 	outline: 1px dashed var(--tk-border);
 }
 
-.hole-flush:hover {
+.wildcard-flush:hover {
 	outline: 1px solid var(--tk-border-strong);
 }
 
-.hole-flush.hole-selected,
-.hole-flush.hole-selected:hover {
+.wildcard-flush.wildcard-selected,
+.wildcard-flush.wildcard-selected:hover {
 	outline: 1px solid var(--vscode-focusBorder);
 }
 
-/* A part inside one kept as a hole goes with it. */
+/* A part inside one kept as a wildcard goes with it. */
 .widen-anchor:disabled,
 .widen-anchor:disabled:hover {
 	opacity: 0.25;
 	cursor: default;
 }
 
-/* Widen: the part is an inline dropdown in the line, marked like a hole; a
+/* Widen: the part is an inline dropdown in the line, marked like a wildcard; a
    changed choice like a filled one. */
 .type-select {
 	position: relative;
@@ -967,17 +967,17 @@ body {
 	margin-top: 4px;
 }
 
-.hole:hover {
+.wildcard:hover {
 	border-color: var(--tk-border-strong);
 }
 
-.hole:focus-visible {
+.wildcard:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 1px;
 }
 
-.hole-selected,
-.hole-selected:hover {
+.wildcard-selected,
+.wildcard-selected:hover {
 	border-color: var(--vscode-focusBorder);
 	background: color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
 }

@@ -81,14 +81,15 @@ export interface GeneralizePreviewResult {
 	error?: string;
 }
 
-// mlsem/holes.
-export interface HolesResult {
+// mlsem/wildcards.
+export interface WildcardsResult {
 	ok: boolean;
-	holes?: {
+	wildcards?: {
 		range: EditRange;
-		hole: string;
+		wildcard: string;
 		// One value, or one per overload of the line's result: as written in
-		// place of the hole, with the parts of it that may be kept as holes.
+		// place of the wildcard, with the parts of it that may be kept as
+		// wildcards.
 		rows: { overload: string | null; value: string | null; parts: ValuePart[] }[];
 		lineText: string;
 	}[];
@@ -105,7 +106,7 @@ export interface ExtractApplyResult {
 	ok: boolean;
 	text?: string;
 	decls?: string[];
-	linksHoles?: boolean;
+	linksWildcards?: boolean;
 	edits?: TextEdit[];
 	error?: string;
 }

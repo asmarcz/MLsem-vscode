@@ -181,34 +181,34 @@ export interface LlmSettings {
 	timeoutCountsAsFail: boolean;
 }
 
-// A hole of a draft val line and the type it was resolved to, at
+// A wildcard of a partial val line and the type it was resolved to, at
 // characters [start, end) of the line.
-export interface Hole {
+export interface Wildcard {
 	start: number;
 	end: number;
-	hole: string;
+	wildcard: string;
 }
 
-// A part of a hole's value that may be kept as a hole: characters [start,
-// end) of the value, parentheses included, and its text.
+// A part of a wildcard's value that may be kept as a wildcard: characters
+// [start, end) of the value, parentheses included, and its text.
 export interface ValuePart {
 	start: number;
 	end: number;
 	text: string;
 }
 
-// Values for the holes of a line, in order. A line has one row, or, when
-// its check gave several overloads that disagree on its holes, one per
-// overload: [overload] is its type, and a value is null where the line
+// Values for the wildcards of a line, in order. A line has one row, or,
+// when its check gave several overloads that disagree on its wildcards, one
+// per overload: [overload] is its type, and a value is null where the line
 // cannot be that overload. [parts] has the parts of each value.
-export interface HoleRow {
+export interface WildcardRow {
 	overload?: string;
 	values: (string | null)[];
 	parts: ValuePart[][];
 }
 
-// A hole's value with parts kept as holes, in place of its row's: by line,
-// row and start character of the hole.
+// A wildcard's value with parts kept as wildcards, in place of its row's:
+// by line, row and start character of the wildcard.
 export interface KeptValue {
 	line: number;
 	row: number;
@@ -216,21 +216,21 @@ export interface KeptValue {
 	value: string;
 }
 
-// A val line of the target with resolved holes.
-export interface HoleLine {
+// A val line of the target with resolved wildcards.
+export interface WildcardLine {
 	line: number;
 	text: string;
-	holes: Hole[];
-	rows: HoleRow[];
+	wildcards: Wildcard[];
+	rows: WildcardRow[];
 }
 
 // A part that repeats in a val type: its key (the part, printed), a
-// suggested name, how many holes it has, and where each occurrence is in
-// the line's text, as [start, end) characters.
+// suggested name, how many wildcards it has, and where each occurrence is
+// in the line's text, as [start, end) characters.
 export interface ExtractGroup {
 	key: string;
 	name: string;
-	holes: number;
+	wildcards: number;
 	// A record only part of some records: extracted as a top-level type,
 	// each record becoming [{ name with ... }].
 	global: boolean;
@@ -243,8 +243,9 @@ export interface ExtractLine {
 	groups: ExtractGroup[];
 }
 
-// How a part with holes is extracted: as a plain name, whose copies then
-// share the holes, or with a parameter per hole, keeping the meaning.
+// How a part with wildcards is extracted: as a plain name, whose copies
+// then share the wildcards, or with a parameter per wildcard, keeping the
+// meaning.
 export type ExtractMode = "plain" | "params";
 
 export interface ExtractChoice {
@@ -300,13 +301,13 @@ export type ExtensionToWebview =
 	// that it may not typecheck; null when the target is not in a definition.
 	// Sent before the target's "overloads".
 	| { type: "target"; name: string | null }
-	// The val lines of the target with resolved holes. Sent after its
+	// The val lines of the target with resolved wildcards. Sent after its
 	// "overloads".
-	| { type: "holes"; lines: HoleLine[] }
+	| { type: "wildcards"; lines: WildcardLine[] }
 	// The val lines of the target with their repeated parts.
 	| { type: "extractGroups"; lines: ExtractLine[] }
-	// The type of [line] with the chosen parts extracted. [linksHoles]: the
-	// plain mode made copies of a part with holes share them.
+	// The type of [line] with the chosen parts extracted. [linksWildcards]:
+	// the plain mode made copies of a part with wildcards share them.
 	| {
 			type: "extractPreview";
 			line: number;
@@ -316,7 +317,7 @@ export type ExtensionToWebview =
 			// The top-level type declarations written above the val.
 			decls?: string[];
 			error?: string;
-			linksHoles?: boolean;
+			linksWildcards?: boolean;
 	  }
 	| { type: "extracted"; error?: string }
 	// For a part tool, the target's val lines with the parts it has options
@@ -342,14 +343,14 @@ export type WebviewToExtension =
 	| { type: "setTimeoutCountsAsFail"; value: boolean }
 	// Write [types], the target's inferred overloads, as its val lines.
 	| { type: "inlineInferred"; types: string[] }
-	// Replace holes of the target's val lines with their types: those given
-	// by line, row of values and start character; or all: a line with one
-	// row filled from it, one with several split as by "splitHoles". A value
-	// in [kept] is written in place of its row's.
-	| { type: "fillHoles"; holes?: { line: number; row: number; start: number }[]; kept: KeptValue[] }
-	// Replace val line [line] by one val line per row, its holes filled from
-	// that row, or from [kept].
-	| { type: "splitHoles"; line: number; kept: KeptValue[] }
+	// Replace wildcards of the target's val lines with their types: those
+	// given by line, row of values and start character; or all: a line with
+	// one row filled from it, one with several split as by "splitWildcards".
+	// A value in [kept] is written in place of its row's.
+	| { type: "fillWildcards"; wildcards?: { line: number; row: number; start: number }[]; kept: KeptValue[] }
+	// Replace val line [line] by one val line per row, its wildcards filled
+	// from that row, or from [kept].
+	| { type: "splitWildcards"; line: number; kept: KeptValue[] }
 	// Preview, or write, the type of val line [line] of the target with the
 	// chosen parts extracted.
 	| { type: "requestExtractPreview"; line: number; mode: ExtractMode; groups: ExtractChoice[] }
@@ -406,7 +407,7 @@ const EXTENSION_TO_WEBVIEW_TYPES: Record<ExtensionToWebview["type"], true> = {
 	llmSettings: true,
 	debugAnchors: true,
 	target: true,
-	holes: true,
+	wildcards: true,
 	extractGroups: true,
 	extractPreview: true,
 	extracted: true,

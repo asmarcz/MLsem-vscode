@@ -18,13 +18,13 @@ parts of the body whose type mentions it.
 | Where | Action |
 |---|---|
 | A definition without `val` | *Inline inferred type*: writes the inferred type as `val` lines. |
-| A hole in a draft `val` line | *Replace _ with T*, or *Replace all holes with their types*. |
-| A `val` type | *Extract repeated parts* (as `where` definitions, or as holes), *Inline where definitions*. |
-| A failing call | *Add overload: …* (a draft line for the argument's type), *Widen domain: …* (an existing line's domain grown to accept the argument). |
+| A wildcard in a partial `val` line | *Replace _ with T*, or *Replace all wildcards with their types*. |
+| A `val` type | *Extract repeated parts* (as `where` definitions, or as wildcards), *Inline where definitions*. |
+| A failing call | *Add overload: …* (a partial line for the argument's type), *Widen domain: …* (an existing line's domain grown to accept the argument). |
 
-**Draft signatures.** A `val` line may contain holes, `_` or a named `'_a`
-(all occurrences one type). The definition is checked against the shape and
-the holes are inferred:
+**Partial signatures.** A `val` line may contain wildcards, `_` or a named
+`'_a` (all occurrences one type). The definition is checked against the shape
+and the wildcards are inferred:
 
 ```
 val len : [any*] -> _
@@ -43,30 +43,31 @@ bar has *Expand all* / *Collapse all*.
 as `val` lines. *Inline inferred type* checks them against the definition and
 writes them above it, like the quick action of the same name.
 
-**Draft holes.** The draft `val` lines with their holes filled. Click holes
-of a row to select them, then *Fill*. A line whose definition needs several
+**Partial signatures.** The partial `val` lines with their wildcards filled.
+Click wildcards of a row to select them, then *Fill*. A line whose definition needs several
 overloads gets one row per overload: *Fill* on a row narrows the line to that
 overload, *Split* replaces the line by all its rows. *Fill all* fills every
 line; if some line has several rows the button reads *Fill all and split*
 and splits those.
 
-To fill a hole only in part, click under a part of its value in a row, as in
-Widen: the part stays a hole `_` (click again to fill it back), and the line
-as it will be written shows under the row. *Fill*, *Split* and *Fill all*
-write the values with those parts as holes. For example, to say only that
-`insert` returns a node, keep the node's contents of
+To fill a wildcard only in part, click under a part of its value in a row,
+as in Widen: the part stays a wildcard `_` (click again to fill it back), and
+the line as it will be written shows under the row. *Fill*, *Split* and
+*Fill all* write the values with those parts as wildcards. For example, to
+say only that `insert` returns a node, keep the node's contents of
 `val insert : tree(string) -> int -> string -> Node(tree(string), int, string, tree(string))`
-as a hole: *Fill* writes `... -> Node(_)`, and callers still get the whole
-node. The line still checks: the whole value is one solution of the holes
-left. A value is written in parentheses only where its hole needs them.
+as a wildcard: *Fill* writes `... -> Node(_)`, and callers still get the
+whole node. The line still checks: the whole value is one solution of the
+wildcards left. A value is written in parentheses only where its wildcard
+needs them.
 
 **Extract repeated parts.** Pick the parts of a `val` type that repeat and
-name them; they become `where` definitions. For parts with holes: *Shared
-holes* (all copies share them) or *Separate holes* (each hole a parameter, so
-copies keep their own).
+name them; they become `where` definitions. For parts with wildcards:
+*Shared wildcards* (all copies share them) or *Separate wildcards* (each
+wildcard a parameter, so copies keep their own).
 
 **Widen.** Click under a part of a `val` type to pick a wider type for it
-(`42` → `int`, a hole `_` last). *Apply* writes every pick.
+(`42` → `int`, a wildcard `_` last). *Apply* writes every pick.
 
 **Narrow.** Same, with narrower types for a part: a declared type inside it
 (`tree('a)`) or some members of a union (`Leaf`, `Node(…)` of a `tree`).
