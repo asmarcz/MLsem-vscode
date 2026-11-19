@@ -32,6 +32,8 @@ services:
     # always, not unless-stopped: podman-restart.service starts only these
     # containers at boot.
     restart: always
+    # Node as PID 1 ignores SIGTERM, so a stop waited 10 s and then killed it.
+    init: true
     # Ensure the session image is built/tagged before the broker starts.
     depends_on:
       code-server-image:
