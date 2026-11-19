@@ -124,6 +124,8 @@ USER coder
 # - workbench.startupEditor=readme: open the project README on start.
 # - window.autoDetectColorScheme: follow the browser's (the system's) light or
 #   dark preference, with VS Code's default light and dark themes.
+# - workbench.secondarySideBar.defaultVisibility=hidden: no Chat panel on the
+#   right at start (it stays one click away).
 # The directory is made by coder: a COPY would create its parents as root.
 RUN mkdir -p /home/coder/.local/share/code-server/User
 COPY --chown=coder:coder code-server/settings.json /home/coder/.local/share/code-server/User/settings.json
