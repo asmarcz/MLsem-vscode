@@ -21,9 +21,12 @@ RUN git init -q /src && cd /src \
 FROM docker.io/alpine/git:v2.54.1 AS vscode-src
 ARG VSCODE_REPO
 ARG VSCODE_REF
+# Without webdemo/ (the extension does not need it): the stages below copy
+# these files by content, so a push that only changes the deploy setup leaves
+# the extension build, and the session image, cached.
 RUN git init -q /src && cd /src \
   && git fetch -q --depth 1 "$VSCODE_REPO" "$VSCODE_REF" \
-  && git checkout -q FETCH_HEAD && rm -rf .git
+  && git checkout -q FETCH_HEAD && rm -rf .git webdemo
 
 FROM docker.io/alpine/git:v2.54.1 AS project-src
 ARG PROJECT_REPO

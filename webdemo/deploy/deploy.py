@@ -7,7 +7,9 @@ of MLsem-vscode. Steps:
   2. resolve the branch heads of MLsem, MLsem-vscode and the dummy project;
   3. build the images while the old demo keeps running;
   4. restart webdemo-stack.service on the new images, prune the old ones,
-     check the public path.
+     check the public path. Skipped when the images, the compose file and the
+     env file are those the demo already runs (a push that changed nothing
+     the demo uses builds from the cache in seconds and restarts nothing).
 A push during step 3 (the webhook touches the trigger file again) stops the
 build and starts over from step 1, so pushes to several repos for one change
 end in one finished build. The layers the stopped build finished stay cached.
@@ -17,6 +19,7 @@ the build (and whose trigger systemd dropped) is still deployed.
 --force deploys even when nothing changed since the last deploy.
 """
 
+import hashlib
 import json
 import os
 import signal
@@ -33,6 +36,8 @@ REPO = WEBDEMO.parent
 ENV_FILE = os.environ.get("WEBDEMO_ENV_FILE", "/etc/webdemo/webdemo.env")
 STATE = Path(os.environ.get("WEBDEMO_STATE", "/var/lib/webdemo/deployed.json"))
 HEALTH_URL = "http://127.0.0.1/" + os.environ.get("BASE_PATH", "/webdemo").strip("/") + "/"
+# The images compose builds: the session image and the broker.
+IMAGES = ["localhost/vscode-demo-code-server:latest", "localhost/webdemo_broker:latest"]
 # Touched by the webhook receiver on each push that deploys.
 TRIGGER = Path(os.environ.get("TRIGGER_FILE", "/run/webdemo-hook/trigger"))
 
@@ -139,10 +144,20 @@ def replace() -> bool:
     return healthy()
 
 
+def running_setup() -> dict[str, str]:
+    """What the demo would run with: the two images and the files the stack
+    reads. Equal to the running one means a restart would change nothing."""
+    ids = str(parsed.podman("image", "inspect", "--format", "{{.Id}}", *IMAGES)).split()
+    files = {f.name: hashlib.sha256(f.read_bytes()).hexdigest()
+             for f in (WEBDEMO / "docker-compose.yml", Path(ENV_FILE))}
+    return {**dict(zip(IMAGES, ids)), **files}
+
+
 def main() -> int:
     local = "--local" in sys.argv
     force = "--force" in sys.argv
-    last = json.loads(STATE.read_text()) if STATE.exists() else None
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    last, running = state.get("refs"), state.get("running")
     while True:
         # Before reading the heads: a push after this point stops the build.
         seen = last_push()
@@ -154,12 +169,21 @@ def main() -> int:
             return 0
         if not build(refs, seen):
             continue
-        if not replace():
+        setup = running_setup()
+        if setup == running and not force and is_active("webdemo-stack.service"):
+            # E.g. a push that only changed the deploy scripts or docs.
+            log("same images and settings as the running demo: left running")
+        elif not replace():
             out.podman("logs", "--tail", "40", "vscode-demo-broker", _ok_code=range(256))
             return 1
         STATE.parent.mkdir(parents=True, exist_ok=True)
-        STATE.write_text(json.dumps(refs, indent=1) + "\n")
-        last, force = refs, False
+        STATE.write_text(json.dumps({"refs": refs, "running": setup}, indent=1) + "\n")
+        last, running, force = refs, setup, False
+
+
+def is_active(unit: str) -> bool:
+    return out.systemctl("is-active", "--quiet", unit, _ok_code=range(256),
+                         _return_cmd=True).exit_code == 0
 
 
 if __name__ == "__main__":
