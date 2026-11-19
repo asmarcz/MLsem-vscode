@@ -1,7 +1,6 @@
 # One deploy run (deploy/deploy.py). Started by webdemo-hook.path, or by hand:
 #   systemctl start webdemo-deploy        (journalctl -fu webdemo-deploy)
-# Not enabled at boot: the running stack comes back by itself through
-# podman-restart.service (the broker has restart: always).
+# Not enabled at boot: webdemo-stack.service brings the running demo back.
 [Unit]
 Description=webdemo deploy
 After=network-online.target podman.socket

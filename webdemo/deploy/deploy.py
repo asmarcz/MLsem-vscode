@@ -6,7 +6,8 @@ of MLsem-vscode. Steps:
      Dockerfiles and these scripts come from it), unless --local;
   2. resolve the branch heads of MLsem, MLsem-vscode and the dummy project;
   3. build the images while the old demo keeps running;
-  4. replace the running stack, prune old images, check the public path.
+  4. restart webdemo-stack.service on the new images, prune the old ones,
+     check the public path.
 Repeats while a branch moved during the build, so a push that came in while
 the deploy ran (and whose trigger systemd dropped) is still deployed.
 
@@ -87,13 +88,9 @@ def deploy(refs: dict[str, str]) -> bool:
     log("building " + " ".join(f"{k}={v[:12]}" for k, v in refs.items()))
     compose("build", env=refs)
     log("replacing the running demo")
-    # The broker starts session containers itself, so compose does not know
-    # about them. They run the old image and hold the network: remove first.
-    ids = str(parsed.podman("ps", "-aq", "--filter", "name=vscode-demo-session")).split()
-    if ids:
-        out.podman("rm", "-f", *ids)
-    compose("down", env=refs)
-    compose("up", "-d", env=refs)
+    # Through its own unit: containers started from this oneshot unit would be
+    # killed when it ends (see webdemo-stack.service).
+    out.systemctl("restart", "webdemo-stack.service")
     # The disk is small: drop the images the rebuild replaced.
     out.podman("image", "prune", "-f")
     return healthy()

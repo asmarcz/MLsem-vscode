@@ -7,8 +7,8 @@
 Creates /etc/webdemo/webdemo.env (from .env.example) and /etc/webdemo/hook.env
 (a fresh webhook secret, printed once) when missing, installs the Caddy config
 and the systemd units, and enables everything that must survive a reboot:
-podman.socket (the broker talks to it), podman-restart.service (restarts the
-broker), the webhook receiver and its trigger. Existing env files are kept.
+podman.socket (the broker talks to it), webdemo-stack.service (the demo), the
+webhook receiver and its trigger. Existing env files are kept.
 """
 
 import secrets
@@ -21,7 +21,7 @@ import sh
 DEPLOY = Path(__file__).resolve().parent
 WEBDEMO = DEPLOY.parent
 ETC = Path("/etc/webdemo")
-UNITS = ["webdemo-hook.service", "webdemo-hook.path", "webdemo-deploy.service"]
+UNITS = ["webdemo-hook.service", "webdemo-hook.path", "webdemo-deploy.service", "webdemo-stack.service"]
 
 out = sh.bake(_out=sys.stdout, _err=sys.stderr)
 
@@ -31,8 +31,8 @@ def env_files() -> None:
     env = ETC / "webdemo.env"
     if not env.exists():
         text = (WEBDEMO / ".env.example").read_text()
-        text = text.replace("#DOCKER_SOCKET=/run/podman/podman.sock", "DOCKER_SOCKET=/run/podman/podman.sock")
-        env.write_text(text)
+        # The broker talks to the system (rootful) Podman socket.
+        env.write_text(text + "\nDOCKER_SOCKET=/run/podman/podman.sock\n")
         print(f"wrote {env}")
     hook = ETC / "hook.env"
     if not hook.exists():
@@ -57,8 +57,13 @@ def units() -> None:
     for u in UNITS:
         shutil.copy(DEPLOY / u, f"/etc/systemd/system/{u}")
     out.systemctl("daemon-reload")
-    out.systemctl("enable", "--now", "podman.socket", "podman-restart.service",
-                  "webdemo-hook.service", "webdemo-hook.path")
+    out.systemctl("enable", "--now", "podman.socket", "webdemo-hook.service", "webdemo-hook.path")
+    # At boot, not now: starting it here would build the images with compose
+    # if a deploy has not built them yet.
+    out.systemctl("enable", "webdemo-stack.service")
+    # webdemo-stack.service starts the broker at boot; podman-restart would
+    # race it for the same container.
+    out.systemctl("disable", "podman-restart.service")
     # Pick up a changed hook.py or unit.
     out.systemctl("restart", "webdemo-hook.service")
 

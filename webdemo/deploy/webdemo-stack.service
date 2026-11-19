@@ -1,0 +1,27 @@
+# The running demo (the compose stack), at boot and after each deploy
+# (deploy.py restarts it once the new images are built).
+#
+# The containers' monitor processes (conmon) stay in this unit's cgroup, so it
+# must stay active: RemainAfterExit. Starting the stack from the oneshot deploy
+# unit instead got the broker killed when the deploy finished.
+[Unit]
+Description=webdemo compose stack
+Requires=podman.socket
+After=podman.socket network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/webdemo/MLsem-vscode/webdemo
+# Session containers are started by the broker, so compose does not know about
+# them; they hold the network and run the old image.
+ExecStartPre=/bin/sh -c 'podman ps -aq --filter name=vscode-demo-session | xargs -r podman rm -f'
+ExecStartPre=/usr/bin/podman-compose --env-file /etc/webdemo/webdemo.env down
+ExecStart=/usr/bin/podman-compose --env-file /etc/webdemo/webdemo.env up -d
+ExecStop=/bin/sh -c 'podman ps -aq --filter name=vscode-demo-session | xargs -r podman rm -f'
+ExecStop=/usr/bin/podman-compose --env-file /etc/webdemo/webdemo.env down
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target
