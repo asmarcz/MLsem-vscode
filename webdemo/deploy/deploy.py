@@ -131,17 +131,26 @@ def healthy(timeout: float = 120) -> bool:
     return False
 
 
-def replace() -> bool:
+def replace(old: dict[str, str], new: dict[str, str]) -> bool:
     log("replacing the running demo")
     # Through its own unit: containers started from this oneshot unit would be
     # killed when it ends (see webdemo-stack.service).
     out.systemctl("restart", "webdemo-stack.service")
-    # The disk is small: drop the images the rebuild replaced. A failure here
-    # only leaves disk space taken, the demo is up: log it and go on.
-    pruned = out.podman("image", "prune", "-f", _ok_code=range(256), _return_cmd=True)
-    if pruned.exit_code:
-        log(f"image prune failed ({pruned.exit_code}), continuing")
-    return healthy()
+    ok = healthy()
+    # The disk is small: drop the images this build replaced. Not a plain
+    # `image prune`: the untagged images it removes include the build cache
+    # (the source fetches, the opam install, the extension build), which made
+    # every deploy a full rebuild. Untagged images unused for a week go, so
+    # the cache of old commits does not pile up. Failures here only leave
+    # disk space taken: log them and go on.
+    stale = [i for name, i in old.items() if name in IMAGES and i != new.get(name)]
+    for cmd in (["rmi", *stale] if stale else None,
+                ["image", "prune", "-f", "--filter", "until=168h"]):
+        if cmd:
+            r = out.podman(*cmd, _ok_code=range(256), _return_cmd=True)
+            if r.exit_code:
+                log(f"podman {cmd[0]} {cmd[1]} failed ({r.exit_code}), continuing")
+    return ok
 
 
 def running_setup() -> dict[str, str]:
@@ -173,7 +182,7 @@ def main() -> int:
         if setup == running and not force and is_active("webdemo-stack.service"):
             # E.g. a push that only changed the deploy scripts or docs.
             log("same images and settings as the running demo: left running")
-        elif not replace():
+        elif not replace(running or {}, setup):
             out.podman("logs", "--tail", "40", "vscode-demo-broker", _ok_code=range(256))
             return 1
         STATE.parent.mkdir(parents=True, exist_ok=True)
