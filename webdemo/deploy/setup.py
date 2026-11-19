@@ -42,7 +42,8 @@ def env_files() -> None:
             "# Shared with the GitHub webhook (Settings -> Webhooks -> Secret).\n"
             f"WEBHOOK_SECRET={secret}\n"
             "# owner/repo:branch pairs whose pushes deploy, comma-separated.\n"
-            "HOOK_TRIGGERS=asmarcz/MLsem:webdemo\n"
+            "HOOK_TRIGGERS=asmarcz/MLsem:webdemo,asmarcz/MLsem-vscode:master,"
+            "asmarcz/MLsem-dummy-project:main\n"
         )
         print(f"wrote {hook}; webhook secret: {secret}")
 
