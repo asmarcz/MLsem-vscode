@@ -11,21 +11,21 @@ ARG PROJECT_REF=main
 # ---------------------------------------------------------------------------
 # Sources: one stage per repo, fetched at the given commit, .git removed.
 # ---------------------------------------------------------------------------
-FROM docker.io/alpine/git:latest AS mlsem-src
+FROM docker.io/alpine/git:v2.54.1 AS mlsem-src
 ARG MLSEM_REPO
 ARG MLSEM_REF
 RUN git init -q /src && cd /src \
   && git fetch -q --depth 1 "$MLSEM_REPO" "$MLSEM_REF" \
   && git checkout -q FETCH_HEAD && rm -rf .git
 
-FROM docker.io/alpine/git:latest AS vscode-src
+FROM docker.io/alpine/git:v2.54.1 AS vscode-src
 ARG VSCODE_REPO
 ARG VSCODE_REF
 RUN git init -q /src && cd /src \
   && git fetch -q --depth 1 "$VSCODE_REPO" "$VSCODE_REF" \
   && git checkout -q FETCH_HEAD && rm -rf .git
 
-FROM docker.io/alpine/git:latest AS project-src
+FROM docker.io/alpine/git:v2.54.1 AS project-src
 ARG PROJECT_REPO
 ARG PROJECT_REF
 RUN git init -q /src && cd /src \
@@ -35,7 +35,7 @@ RUN git init -q /src && cd /src \
 # ---------------------------------------------------------------------------
 # The extension .vsix, packaged from the MLsem-vscode sources.
 # ---------------------------------------------------------------------------
-FROM docker.io/oven/bun:1 AS vsix-build
+FROM docker.io/oven/bun:1.4.5 AS vsix-build
 WORKDIR /src
 COPY --from=vscode-src /src/package.json /src/bun.lock ./
 RUN bun install --frozen-lockfile
@@ -44,10 +44,10 @@ RUN bun run package && mv mlsem-vscode-*.vsix /mlsem-vscode.vsix
 
 # ---------------------------------------------------------------------------
 # Stage 1: build the MLsem LSP server from source.
-# The MLsem type-checker/LSP is built with OCaml 5.3 + dune. `make lsp-build`
+# The MLsem type-checker/LSP is built with OCaml 5.6 + dune. `make lsp-build`
 # produces _build/default/src/bin/lsp.exe.
 # ---------------------------------------------------------------------------
-FROM docker.io/ocaml/opam:debian-ocaml-5.3 AS lsp-build
+FROM docker.io/ocaml/opam:debian-13-ocaml-5.6 AS lsp-build
 
 # Assume "yes" for opam prompts (incl. depext apt installs) so the build is
 # fully non-interactive.
@@ -88,7 +88,7 @@ RUN opam exec -- make lsp-build
 # ---------------------------------------------------------------------------
 # Stage 2: the ephemeral code-server session image.
 # ---------------------------------------------------------------------------
-FROM docker.io/codercom/code-server:latest
+FROM docker.io/codercom/code-server:4.145.2
 
 USER root
 
