@@ -39,7 +39,11 @@ const proxy = httpProxy.createProxyServer({
 	// Host to the container name while the browser's Origin stays the public
 	// host, causing a 403 / 1006 close. Preserving the original Host keeps them
 	// matched; the connection still targets the session container regardless.
-	xfwd: true,
+	// No xfwd, for the same check: http-proxy-3 would add X-Forwarded-Port 80
+	// (this hop's port) next to X-Forwarded-Host, so code-server takes the host
+	// to be host:80, which never matches the https Origin. Caddy in front
+	// already sets X-Forwarded-For/-Proto/-Host, without a port.
+	xfwd: false,
 });
 
 app.use(morgan("combined"));
