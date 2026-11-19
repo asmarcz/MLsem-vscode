@@ -9,9 +9,18 @@ services:
   # and so the broker's SESSION_IMAGE resolves to the same local image.
   code-server-image:
     build:
-      # webdemo dir: holds the demo assets and the extension .vsix copy.
+      # webdemo dir: holds the entrypoint. The LSP, the extension and the
+      # starting project come from the three repos at these commits (set by
+      # deploy/deploy.py).
       context: .
       dockerfile: ./code-server/Dockerfile
+      args:
+        MLSEM_REPO: ${MLSEM_REPO:-https://github.com/asmarcz/MLsem.git}
+        VSCODE_REPO: ${VSCODE_REPO:-https://github.com/asmarcz/MLsem-vscode.git}
+        PROJECT_REPO: ${PROJECT_REPO:-https://github.com/asmarcz/MLsem-dummy-project.git}
+        MLSEM_REF: ${MLSEM_REF:-webdemo}
+        VSCODE_REF: ${VSCODE_REF:-master}
+        PROJECT_REF: ${PROJECT_REF:-main}
     image: localhost/vscode-demo-code-server:latest
     entrypoint: ["true"]
     restart: "no"
@@ -20,7 +29,9 @@ services:
     build:
       context: ./broker
     container_name: vscode-demo-broker
-    restart: unless-stopped
+    # always, not unless-stopped: podman-restart.service starts only these
+    # containers at boot.
+    restart: always
     # Ensure the session image is built/tagged before the broker starts.
     depends_on:
       code-server-image:

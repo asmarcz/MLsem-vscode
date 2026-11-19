@@ -1,0 +1,27 @@
+# GitHub webhook receiver (deploy/hook.py), behind Caddy at /webdemo-hook.
+# Runs as a throwaway unprivileged user: all it can do is touch the trigger
+# file, which webdemo-hook.path turns into a deploy.
+[Unit]
+Description=webdemo GitHub webhook receiver
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /srv/webdemo/MLsem-vscode/webdemo/deploy/hook.py
+EnvironmentFile=/etc/webdemo/hook.env
+Environment=TRIGGER_FILE=/run/webdemo-hook/trigger
+DynamicUser=yes
+RuntimeDirectory=webdemo-hook
+RuntimeDirectoryPreserve=yes
+Restart=always
+RestartSec=2
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

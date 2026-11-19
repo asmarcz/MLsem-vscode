@@ -1,5 +1,5 @@
-# Host-level Caddy config for the demo. Copy (or symlink) this to
-# /etc/caddy/Caddyfile and `systemctl reload caddy`.
+# Host-level Caddy config for the demo, installed to /etc/caddy/Caddyfile by
+# deploy/setup.py.
 #
 # Serves everything under BASE_PATH (default /webdemo) on port 80 and forwards
 # to the broker WITHOUT stripping the prefix: the broker is BASE_PATH-aware and
@@ -10,10 +10,16 @@
 # Caddy runs on the same host and dials it there. reverse_proxy preserves the
 # incoming Host header by default (code-server's anti-CSRF check needs Host to
 # match the browser Origin) and upgrades WebSocket connections transparently.
+#
+# /webdemo-hook is the GitHub webhook (deploy/hook.py on 127.0.0.1:9001).
 :80 {
 	@app path {$BASE_PATH:/webdemo} {$BASE_PATH:/webdemo}/*
 	handle @app {
 		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /webdemo-hook {
+		reverse_proxy 127.0.0.1:9001
 	}
 
 	handle {

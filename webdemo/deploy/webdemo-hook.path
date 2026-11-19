@@ -1,0 +1,10 @@
+# Starts a deploy whenever the webhook receiver touches its trigger file.
+[Unit]
+Description=webdemo deploy trigger
+
+[Path]
+PathModified=/run/webdemo-hook/trigger
+Unit=webdemo-deploy.service
+
+[Install]
+WantedBy=paths.target

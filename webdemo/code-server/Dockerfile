@@ -1,7 +1,51 @@
+# The three repos, each at the commit given by the deploy script (a full
+# commit hash, so a new push changes the argument and the fetch reruns, while
+# an unchanged repo keeps its cached layers).
+ARG MLSEM_REPO=https://github.com/asmarcz/MLsem.git
+ARG MLSEM_REF=webdemo
+ARG VSCODE_REPO=https://github.com/asmarcz/MLsem-vscode.git
+ARG VSCODE_REF=master
+ARG PROJECT_REPO=https://github.com/asmarcz/MLsem-dummy-project.git
+ARG PROJECT_REF=main
+
+# ---------------------------------------------------------------------------
+# Sources: one stage per repo, fetched at the given commit, .git removed.
+# ---------------------------------------------------------------------------
+FROM docker.io/alpine/git:latest AS mlsem-src
+ARG MLSEM_REPO
+ARG MLSEM_REF
+RUN git init -q /src && cd /src \
+  && git fetch -q --depth 1 "$MLSEM_REPO" "$MLSEM_REF" \
+  && git checkout -q FETCH_HEAD && rm -rf .git
+
+FROM docker.io/alpine/git:latest AS vscode-src
+ARG VSCODE_REPO
+ARG VSCODE_REF
+RUN git init -q /src && cd /src \
+  && git fetch -q --depth 1 "$VSCODE_REPO" "$VSCODE_REF" \
+  && git checkout -q FETCH_HEAD && rm -rf .git
+
+FROM docker.io/alpine/git:latest AS project-src
+ARG PROJECT_REPO
+ARG PROJECT_REF
+RUN git init -q /src && cd /src \
+  && git fetch -q --depth 1 "$PROJECT_REPO" "$PROJECT_REF" \
+  && git checkout -q FETCH_HEAD && rm -rf .git
+
+# ---------------------------------------------------------------------------
+# The extension .vsix, packaged from the MLsem-vscode sources.
+# ---------------------------------------------------------------------------
+FROM docker.io/oven/bun:1 AS vsix-build
+WORKDIR /src
+COPY --from=vscode-src /src/package.json /src/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY --from=vscode-src /src ./
+RUN bun run package && mv mlsem-vscode-*.vsix /mlsem-vscode.vsix
+
 # ---------------------------------------------------------------------------
 # Stage 1: build the MLsem LSP server from source.
-# The MLsem type-checker/LSP lives in a separate repo and is built with OCaml
-# 5.3 + dune. `make lsp-build` produces _build/default/src/bin/lsp.exe.
+# The MLsem type-checker/LSP is built with OCaml 5.3 + dune. `make lsp-build`
+# produces _build/default/src/bin/lsp.exe.
 # ---------------------------------------------------------------------------
 FROM docker.io/ocaml/opam:debian-ocaml-5.3 AS lsp-build
 
@@ -9,8 +53,10 @@ FROM docker.io/ocaml/opam:debian-ocaml-5.3 AS lsp-build
 # fully non-interactive.
 ENV OPAMYES=1
 
-RUN git clone --depth 1 https://github.com/E-Sh4rk/MLsem.git /home/opam/MLsem
 WORKDIR /home/opam/MLsem
+# The .opam files first: the dependency install below is cached until one of
+# them changes, so a push that only changes code skips it.
+COPY --from=mlsem-src --chown=opam:opam /src/*.opam ./
 
 # `make deps` (opam install . --deps-only) would install deps for ALL packages,
 # including mlsem-web, which drags in wasm_of_ocaml-compiler (needs binaryen and
@@ -35,8 +81,9 @@ RUN opam install --deps-only \
   ./mlsem-lang.opam \
   ./mlsem.opam \
   ./mlsem-app.opam \
-  ./mlsem-lsp.opam \
-  && make lsp-build
+  ./mlsem-lsp.opam
+COPY --from=mlsem-src --chown=opam:opam /src ./
+RUN opam exec -- make lsp-build
 
 # ---------------------------------------------------------------------------
 # Stage 2: the ephemeral code-server session image.
@@ -54,11 +101,11 @@ RUN apt-get update \
 # MLsem LSP binary (built in stage 1) — the extension is pointed here.
 COPY --from=lsp-build /home/opam/MLsem/_build/default/src/bin/lsp.exe /opt/mlsem/lsp.exe
 
-# Paths are relative to the build context (the webdemo directory), which holds
-# the demo assets and a copy of the extension .vsix.
-COPY demo-project /template-project
+# The starting project is the dummy project as it is; the entrypoint path is
+# relative to the build context (the webdemo directory).
+COPY --from=project-src /src /template-project
+COPY --from=vsix-build /mlsem-vscode.vsix /tmp/mlsem-vscode.vsix
 COPY code-server/entrypoint.sh /entrypoint.sh
-COPY mlsem-vscode-*.vsix /tmp/mlsem-vscode.vsix
 
 RUN chmod +x /entrypoint.sh /opt/mlsem/lsp.exe \
   && mkdir -p /workspace \

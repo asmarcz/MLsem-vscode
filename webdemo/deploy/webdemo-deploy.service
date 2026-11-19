@@ -1,0 +1,14 @@
+# One deploy run (deploy/deploy.py). Started by webdemo-hook.path, or by hand:
+#   systemctl start webdemo-deploy        (journalctl -fu webdemo-deploy)
+# Not enabled at boot: the running stack comes back by itself through
+# podman-restart.service (the broker has restart: always).
+[Unit]
+Description=webdemo deploy
+After=network-online.target podman.socket
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/webdemo/webdemo.env
+ExecStart=/usr/bin/python3 /srv/webdemo/MLsem-vscode/webdemo/deploy/deploy.py
+TimeoutStartSec=2h
