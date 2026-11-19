@@ -8,14 +8,18 @@ of MLsem-vscode. Steps:
   3. build the images while the old demo keeps running;
   4. restart webdemo-stack.service on the new images, prune the old ones,
      check the public path.
-Repeats while a branch moved during the build, so a push that came in while
-the deploy ran (and whose trigger systemd dropped) is still deployed.
+A push during step 3 (the webhook touches the trigger file again) stops the
+build and starts over from step 1, so pushes to several repos for one change
+end in one finished build. The layers the stopped build finished stay cached.
+Repeats while a branch moved during the deploy, so a push that came in after
+the build (and whose trigger systemd dropped) is still deployed.
 
 --force deploys even when nothing changed since the last deploy.
 """
 
 import json
 import os
+import signal
 import sys
 import time
 import urllib.error
@@ -29,6 +33,8 @@ REPO = WEBDEMO.parent
 ENV_FILE = os.environ.get("WEBDEMO_ENV_FILE", "/etc/webdemo/webdemo.env")
 STATE = Path(os.environ.get("WEBDEMO_STATE", "/var/lib/webdemo/deployed.json"))
 HEALTH_URL = "http://127.0.0.1/" + os.environ.get("BASE_PATH", "/webdemo").strip("/") + "/"
+# Touched by the webhook receiver on each push that deploys.
+TRIGGER = Path(os.environ.get("TRIGGER_FILE", "/run/webdemo-hook/trigger"))
 
 # (compose build argument, repository, branch)
 SOURCES = [
@@ -62,9 +68,38 @@ def heads() -> dict[str, str]:
     return refs
 
 
-def compose(*args: str, env: dict[str, str] | None = None) -> None:
-    out.podman_compose("--env-file", ENV_FILE, *args, _cwd=WEBDEMO,
-                       _env={**os.environ, **(env or {})})
+def last_push() -> int:
+    try:
+        return TRIGGER.stat().st_mtime_ns
+    except FileNotFoundError:
+        return 0
+
+
+def build(refs: dict[str, str], seen: int) -> bool:
+    """Build the images; False if a newer push (the trigger file changed since
+    `seen`) stopped the build."""
+    log("building " + " ".join(f"{k}={v[:12]}" for k, v in refs.items()))
+    p = sh.podman_compose("--env-file", ENV_FILE, "build", _cwd=WEBDEMO,
+                          _env={**os.environ, **refs}, _out=sys.stdout, _err=sys.stderr,
+                          _bg=True, _bg_exc=False, _new_session=True)
+    try:
+        while p.is_alive():
+            if last_push() != seen:
+                log("a newer push came in: stopping this build")
+                return False
+            time.sleep(2)
+        p.wait()  # raises if the build failed
+        return True
+    finally:
+        # The build runs in its own process group (podman-compose and the
+        # podman builds it starts): stop all of it, politely first.
+        pgid = p.process.pgid
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                break
+            time.sleep(5)
 
 
 def healthy(timeout: float = 120) -> bool:
@@ -84,9 +119,7 @@ def healthy(timeout: float = 120) -> bool:
     return False
 
 
-def deploy(refs: dict[str, str]) -> bool:
-    log("building " + " ".join(f"{k}={v[:12]}" for k, v in refs.items()))
-    compose("build", env=refs)
+def replace() -> bool:
     log("replacing the running demo")
     # Through its own unit: containers started from this oneshot unit would be
     # killed when it ends (see webdemo-stack.service).
@@ -101,13 +134,17 @@ def main() -> int:
     force = "--force" in sys.argv
     last = json.loads(STATE.read_text()) if STATE.exists() else None
     while True:
+        # Before reading the heads: a push after this point stops the build.
+        seen = last_push()
         if not local:
             update_clone()
         refs = heads()
         if refs == last and not force:
             log("nothing new to deploy")
             return 0
-        if not deploy(refs):
+        if not build(refs, seen):
+            continue
+        if not replace():
             out.podman("logs", "--tail", "40", "vscode-demo-broker", _ok_code=range(256))
             return 1
         STATE.parent.mkdir(parents=True, exist_ok=True)
