@@ -35,9 +35,9 @@ SOURCES = [
     ("MLSEM_REF", os.environ.get("MLSEM_REPO", "https://github.com/asmarcz/MLsem.git"),
      os.environ.get("MLSEM_BRANCH", "webdemo")),
     ("VSCODE_REF", os.environ.get("VSCODE_REPO", "https://github.com/asmarcz/MLsem-vscode.git"),
-     os.environ.get("VSCODE_BRANCH", "master")),
+     os.environ.get("VSCODE_BRANCH", "webdemo")),
     ("PROJECT_REF", os.environ.get("PROJECT_REPO", "https://github.com/asmarcz/MLsem-dummy-project.git"),
-     os.environ.get("PROJECT_BRANCH", "main")),
+     os.environ.get("PROJECT_BRANCH", "webdemo")),
 ]
 
 out = sh.bake(_out=sys.stdout, _err=sys.stderr)

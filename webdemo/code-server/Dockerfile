@@ -4,9 +4,9 @@
 ARG MLSEM_REPO=https://github.com/asmarcz/MLsem.git
 ARG MLSEM_REF=webdemo
 ARG VSCODE_REPO=https://github.com/asmarcz/MLsem-vscode.git
-ARG VSCODE_REF=master
+ARG VSCODE_REF=webdemo
 ARG PROJECT_REPO=https://github.com/asmarcz/MLsem-dummy-project.git
-ARG PROJECT_REF=main
+ARG PROJECT_REF=webdemo
 
 # ---------------------------------------------------------------------------
 # Sources: one stage per repo, fetched at the given commit, .git removed.
