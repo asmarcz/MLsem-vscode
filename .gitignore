@@ -7,3 +7,4 @@ lsp.exe
 .serena
 webdemo.zip
 .zvec-grep
+__pycache__/
