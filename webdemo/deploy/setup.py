@@ -30,9 +30,7 @@ def env_files() -> None:
     ETC.mkdir(mode=0o755, exist_ok=True)
     env = ETC / "webdemo.env"
     if not env.exists():
-        text = (WEBDEMO / ".env.example").read_text()
-        # The broker talks to the system (rootful) Podman socket.
-        env.write_text(text + "\nDOCKER_SOCKET=/run/podman/podman.sock\n")
+        shutil.copy(WEBDEMO / ".env.example", env)
         print(f"wrote {env}")
     hook = ETC / "hook.env"
     if not hook.exists():
