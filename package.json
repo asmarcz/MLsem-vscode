@@ -3,6 +3,10 @@
 	"displayName": "MLsem",
 	"description": "",
 	"version": "0.0.1",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/asmarcz/MLsem-vscode.git"
+	},
 	"engines": {
 		"vscode": "^1.110.0"
 	},
