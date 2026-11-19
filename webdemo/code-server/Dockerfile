@@ -83,7 +83,12 @@ RUN opam install --deps-only \
   ./mlsem-app.opam \
   ./mlsem-lsp.opam
 COPY --from=mlsem-src --chown=opam:opam /src ./
-RUN opam exec -- make lsp-build
+# dune's shared cache in a cache mount, kept by the builder between builds: a
+# push recompiles only what changed instead of all of MLsem. Copy mode, as
+# hard links cannot cross into the mount.
+ENV DUNE_CACHE=enabled DUNE_CACHE_STORAGE_MODE=copy
+RUN --mount=type=cache,target=/home/opam/.cache/dune,uid=1000,gid=1000 \
+  opam exec -- make lsp-build
 
 # ---------------------------------------------------------------------------
 # Stage 2: the ephemeral code-server session image.
@@ -98,18 +103,12 @@ RUN apt-get update \
   libgmp10 \
   && rm -rf /var/lib/apt/lists/*
 
-# MLsem LSP binary (built in stage 1) — the extension is pointed here.
-COPY --from=lsp-build /home/opam/MLsem/_build/default/src/bin/lsp.exe /opt/mlsem/lsp.exe
-
-# The starting project is the dummy project as it is; the entrypoint path is
-# relative to the build context (the webdemo directory).
-COPY --from=project-src /src /template-project
-COPY --from=vsix-build /mlsem-vscode.vsix /tmp/mlsem-vscode.vsix
-COPY code-server/entrypoint.sh /entrypoint.sh
-
-RUN chmod +x /entrypoint.sh /opt/mlsem/lsp.exe \
-  && mkdir -p /workspace \
-  && chown -R coder:coder /workspace /template-project /entrypoint.sh /opt/mlsem
+# Ordered from what changes least to what changes most (the LSP, on every
+# MLsem push), so a rebuild redoes only the layers after the first change.
+# Owners and modes are set by the COPYs: a chown -R in a later layer would
+# store every file a second time.
+COPY --chmod=755 code-server/entrypoint.sh /entrypoint.sh
+RUN mkdir -p /workspace && chown coder:coder /workspace
 
 USER coder
 
@@ -123,10 +122,18 @@ USER coder
 # default — safe here since the workspace is our own template, not user code.
 # workbench.startupEditor=readme: open the project README (rendered preview) on
 # start so each session lands on the demo instructions.
-RUN code-server --install-extension /tmp/mlsem-vscode.vsix \
+RUN --mount=type=bind,from=vsix-build,source=/mlsem-vscode.vsix,target=/tmp/mlsem-vscode.vsix \
+  code-server --install-extension /tmp/mlsem-vscode.vsix \
   && mkdir -p /home/coder/.local/share/code-server/User \
   && printf '{\n  "mlsem.server.path": "/opt/mlsem/lsp.exe",\n  "security.workspace.trust.enabled": false,\n  "workbench.startupEditor": "readme"\n}\n' \
   > /home/coder/.local/share/code-server/User/settings.json
+
+# The starting project is the dummy project as it is.
+COPY --from=project-src --chown=coder:coder /src /template-project
+
+# MLsem LSP binary (built in stage 1) — the extension is pointed here.
+COPY --from=lsp-build --chown=coder:coder --chmod=755 \
+  /home/opam/MLsem/_build/default/src/bin/lsp.exe /opt/mlsem/lsp.exe
 
 EXPOSE 8080
 
