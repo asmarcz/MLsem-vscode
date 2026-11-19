@@ -11,6 +11,7 @@ podman.socket (the broker talks to it), webdemo-stack.service (the demo), the
 webhook receiver and its trigger. Existing env files are kept.
 """
 
+import re
 import secrets
 import shutil
 import sys
@@ -35,14 +36,10 @@ def env_files() -> None:
     hook = ETC / "hook.env"
     if not hook.exists():
         secret = secrets.token_hex(32)
+        text = re.sub(r"(?m)^WEBHOOK_SECRET=.*$", f"WEBHOOK_SECRET={secret}",
+                      (DEPLOY / "hook.env.example").read_text())
         hook.touch(mode=0o600)
-        hook.write_text(
-            "# Shared with the GitHub webhook (Settings -> Webhooks -> Secret).\n"
-            f"WEBHOOK_SECRET={secret}\n"
-            "# owner/repo:branch pairs whose pushes deploy, comma-separated.\n"
-            "HOOK_TRIGGERS=asmarcz/MLsem:webdemo,asmarcz/MLsem-vscode:master,"
-            "asmarcz/MLsem-dummy-project:main\n"
-        )
+        hook.write_text(text)
         print(f"wrote {hook}; webhook secret: {secret}")
 
 
