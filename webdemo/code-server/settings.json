@@ -1,0 +1,6 @@
+{
+  "mlsem.server.path": "/opt/mlsem/lsp.exe",
+  "security.workspace.trust.enabled": false,
+  "workbench.startupEditor": "readme",
+  "window.autoDetectColorScheme": true
+}

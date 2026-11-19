@@ -112,21 +112,24 @@ RUN mkdir -p /workspace && chown coder:coder /workspace
 
 USER coder
 
-# Install the extension and point mlsem.server.path at the built LSP binary.
-# The extension + settings live in the code-server data dir (baked into the
-# image), so they survive the entrypoint's /workspace reset on every start.
-# security.workspace.trust.enabled=false: the ephemeral /workspace folder is
-# untrusted on every fresh start, which puts VS Code in Restricted Mode and
-# disables the MLsem extension (it declares no untrustedWorkspaces capability)
-# until the user manually enables it. Disabling trust keeps it enabled by
-# default — safe here since the workspace is our own template, not user code.
-# workbench.startupEditor=readme: open the project README (rendered preview) on
-# start so each session lands on the demo instructions.
+# The default user settings (code-server/settings.json). They and the
+# extension live in the code-server data dir (baked into the image), so they
+# survive the entrypoint's /workspace reset on every start.
+# - mlsem.server.path: the LSP binary built above.
+# - security.workspace.trust.enabled=false: the ephemeral /workspace folder is
+#   untrusted on every fresh start, which puts VS Code in Restricted Mode and
+#   disables the MLsem extension (it declares no untrustedWorkspaces
+#   capability) until the user manually enables it. Safe here since the
+#   workspace is our own template, not user code.
+# - workbench.startupEditor=readme: open the project README on start.
+# - window.autoDetectColorScheme: follow the browser's (the system's) light or
+#   dark preference, with VS Code's default light and dark themes.
+# The directory is made by coder: a COPY would create its parents as root.
+RUN mkdir -p /home/coder/.local/share/code-server/User
+COPY --chown=coder:coder code-server/settings.json /home/coder/.local/share/code-server/User/settings.json
+
 RUN --mount=type=bind,from=vsix-build,source=/mlsem-vscode.vsix,target=/tmp/mlsem-vscode.vsix \
-  code-server --install-extension /tmp/mlsem-vscode.vsix \
-  && mkdir -p /home/coder/.local/share/code-server/User \
-  && printf '{\n  "mlsem.server.path": "/opt/mlsem/lsp.exe",\n  "security.workspace.trust.enabled": false,\n  "workbench.startupEditor": "readme"\n}\n' \
-  > /home/coder/.local/share/code-server/User/settings.json
+  code-server --install-extension /tmp/mlsem-vscode.vsix
 
 # The starting project is the dummy project as it is.
 COPY --from=project-src --chown=coder:coder /src /template-project
