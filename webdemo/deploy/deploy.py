@@ -86,20 +86,27 @@ def build(refs: dict[str, str], seen: int) -> bool:
         while p.is_alive():
             if last_push() != seen:
                 log("a newer push came in: stopping this build")
+                stop(p.process.pgid)
+                # The stopped build leaves its working containers, which keep
+                # their images from being pruned. This is the only builder.
+                out.buildah("rm", "--all")
                 return False
             time.sleep(2)
         p.wait()  # raises if the build failed
         return True
     finally:
-        # The build runs in its own process group (podman-compose and the
-        # podman builds it starts): stop all of it, politely first.
-        pgid = p.process.pgid
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(pgid, sig)
-            except ProcessLookupError:
-                break
-            time.sleep(5)
+        stop(p.process.pgid)
+
+
+def stop(pgid: int) -> None:
+    # The build runs in its own process group (podman-compose and the podman
+    # builds it starts): stop all of it, politely first.
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            break
+        time.sleep(5)
 
 
 def healthy(timeout: float = 120) -> bool:
@@ -124,8 +131,11 @@ def replace() -> bool:
     # Through its own unit: containers started from this oneshot unit would be
     # killed when it ends (see webdemo-stack.service).
     out.systemctl("restart", "webdemo-stack.service")
-    # The disk is small: drop the images the rebuild replaced.
-    out.podman("image", "prune", "-f")
+    # The disk is small: drop the images the rebuild replaced. A failure here
+    # only leaves disk space taken, the demo is up: log it and go on.
+    pruned = out.podman("image", "prune", "-f", _ok_code=range(256))
+    if pruned.exit_code:
+        log(f"image prune failed ({pruned.exit_code}), continuing")
     return healthy()
 
 
