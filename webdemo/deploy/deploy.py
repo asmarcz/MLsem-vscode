@@ -133,7 +133,7 @@ def replace() -> bool:
     out.systemctl("restart", "webdemo-stack.service")
     # The disk is small: drop the images the rebuild replaced. A failure here
     # only leaves disk space taken, the demo is up: log it and go on.
-    pruned = out.podman("image", "prune", "-f", _ok_code=range(256))
+    pruned = out.podman("image", "prune", "-f", _ok_code=range(256), _return_cmd=True)
     if pruned.exit_code:
         log(f"image prune failed ({pruned.exit_code}), continuing")
     return healthy()
